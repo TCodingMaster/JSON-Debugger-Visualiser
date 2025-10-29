@@ -1,0 +1,230 @@
+:root {
+	--bg: #ffffff;
+	--text: #0f172a;
+	--muted: #64748b;
+	--border: #e2e8f0;
+	--primary: #0c0fc0;
+	--danger: #dc2626;
+	--node-bg: #f8fafc;
+	--accent: #f1f5f9;
+}
+
+[data-theme="dark"] {
+	--bg: #0b1220;
+	--text: #e5e7eb;
+	--muted: #9aa4b2;
+	--border: #1f2937;
+	--primary: #60a5fa;
+	--danger: #f87171;
+	--node-bg: #111827;
+	--accent: #0f172a;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html, body {
+	margin: 0;
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.app-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+	position: sticky;
+	top: 0;
+	background: var(--bg);
+	z-index: 10;
+}
+
+.app-header h1 {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.header-actions button {
+	margin-left: 8px;
+}
+
+.app-main {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	height: calc(100% - 57px);
+	padding: 12px;
+}
+
+.left-pane, .right-pane {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--node-bg);
+}
+
+.editor-controls {
+	display: flex;
+	gap: 8px;
+	padding: 10px;
+	border-bottom: 1px solid var(--border);
+	background: var(--accent);
+	border-top-left-radius: 10px;
+	border-top-right-radius: 10px;
+}
+
+textarea#jsonInput {
+	flex: 1;
+	width: 100%;
+	resize: none;
+	border: 0;
+	outline: none;
+	padding: 12px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	font-size: 13px;
+	background: transparent;
+	color: var(--text);
+}
+
+.error-line {
+	min-height: 22px;
+	color: var(--danger);
+	padding: 6px 10px 10px 10px;
+	border-top: 1px solid var(--border);
+	font-size: 12px;
+}
+
+.tree-root {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 8px;
+}
+
+button {
+	appearance: none;
+	background: var(--accent);
+	border: 1px solid var(--border);
+	color: var(--text);
+	padding: 6px 10px;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 13px;
+	transition: background 160ms ease, border-color 160ms ease, transform 80ms ease;
+}
+
+button.primary {
+	background: var(--primary);
+	border-color: var(--primary);
+	color: white;
+}
+
+button:active {
+	transform: translateY(1px);
+}
+
+.json-node {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--bg);
+	margin: 6px 2px 6px 12px;
+	box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+}
+
+.json-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-bottom: 1px dashed transparent;
+}
+
+.json-children {
+	max-height: 0;
+	overflow: hidden;
+	transition: max-height 220ms ease;
+	padding-left: 14px;
+}
+
+.json-node.open > .json-children {
+	max-height: 1000px;
+}
+
+.twist {
+	width: 16px;
+	height: 16px;
+	border-radius: 4px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--accent);
+	border: 1px solid var(--border);
+	cursor: pointer;
+	user-select: none;
+	font-size: 12px;
+}
+
+.key, .value {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	font-size: 13px;
+}
+
+.editable {
+	border: 1px dashed transparent;
+	border-radius: 6px;
+	padding: 2px 4px;
+}
+
+.editable[contenteditable="true"]:focus {
+	outline: none;
+	border-color: var(--primary);
+	background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+.badge {
+	font-size: 11px;
+	padding: 2px 6px;
+	border-radius: 999px;
+	background: var(--accent);
+	border: 1px solid var(--border);
+	color: var(--muted);
+}
+
+.error {
+	color: var(--danger);
+	border-color: color-mix(in oklab, var(--danger) 40%, var(--border));
+	background: color-mix(in oklab, var(--danger) 5%, transparent);
+}
+
+.pair {
+	color: var(--muted);
+}
+
+.controls-inline {
+	margin-left: auto;
+	display: inline-flex;
+	gap: 6px;
+}
+
+.kv-sep { color: var(--muted); }
+
+.hint {
+	margin: 6px 10px 10px 10px;
+	color: var(--muted);
+	font-size: 12px;
+}
+
+@media (max-width: 1000px) {
+	.app-main { grid-template-columns: 1fr; height: auto; }
+	.left-pane, .right-pane { min-height: 300px; }
+}
+
+

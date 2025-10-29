@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Debugger & Visualizer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-theme="light">
+    <header class="app-header">
+        <h1 id="titleText">JSON Debugger & Visualizer</h1>
+        <div class="header-actions">
+            <label for="langSelect" id="langLabel" style="margin-right:6px;">Language</label>
+            <select id="langSelect">
+                <option value="en">English</option>
+                <option value="sl" selected>Slovenščina</option>
+            </select>
+            <button id="themeToggle" title="Toggle theme">Toggle Theme</button>
+            <button id="exportBtn" title="Export JSON">Export</button>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <section class="left-pane">
+            <div class="editor-controls">
+                <button id="parseBtn" class="primary">Parse JSON</button>
+                <button id="expandAllBtn">Expand All</button>
+                <button id="collapseAllBtn">Collapse All</button>
+            </div>
+            <textarea id="jsonInput" spellcheck="false" placeholder="Paste JSON here..."></textarea>
+            <div id="inputError" class="error-line" aria-live="polite"></div>
+        </section>
+
+        <section class="right-pane">
+            <div id="treeRoot" class="tree-root" aria-live="polite"></div>
+        </section>
+    </main>
+
+    <!-- Load precompiled JS for the browser -->
+    <script type="module" src="app.js"></script>
+</body>
+<!-- Note: TypeScript source is available as app.ts for reference -->
+</html>
+
+
