@@ -1,6 +1,9 @@
 # JSON-Debugger-Visualiser
 A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScript, HTML, and CSS** — no frameworks, no dependencies.   Paste your JSON, explore it as an **expandable tree**, **edit values inline**, and **export** your changes — all right in the browser.
-![App Screenshot](https://user-images.githubusercontent.com/yourusername/demo-screenshot.pn)  
+![App Screenshot Light mode]<img width="1920" height="888" alt="Screenshot_20251029_224222" src="https://github.com/user-attachments/assets/0154d58c-6389-4737-84ef-2d680201c56d" />
+![App Screenshot Dark mode]<img width="1910" height="888" alt="Screenshot_20251029_224536" src="https://github.com/user-attachments/assets/9198464f-d76f-466d-a4da-6d62a0b90b2c" />
+
+
 *(Add a real screenshot of your app once deployed!)*
 
 ---
