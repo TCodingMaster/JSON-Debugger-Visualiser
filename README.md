@@ -9,6 +9,9 @@ A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScri
 
 *(Add a real screenshot of your app once deployed!)*
 
+## Try directly from your browser: 
+"https://tcodingmaster.github.io/JSON-Debugger-Visualiser/"
+
 ---
 
 ## 🌟 Features
