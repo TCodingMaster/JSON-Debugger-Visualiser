@@ -83,9 +83,7 @@ open .
 
 ##  Example
 Paste this JSON into the editor to test:
-```
-json
-Copy code
+``` json
 {
   "user": {
     "name": "Lina",
@@ -94,8 +92,6 @@ Copy code
     "active": true
   }
 }
-
-You’ll see a nested tree that can be expanded, edited, or exported.
 ```
 
 ## ⚙️ Roadmap / Future Ideas
