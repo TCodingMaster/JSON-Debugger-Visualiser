@@ -79,7 +79,7 @@ cd JSON-Debugger-Visualiser
 git pull
 #then just open it in finder
 open .
-
+```
 
 ##  Example
 Paste this JSON into the editor to test:
