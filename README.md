@@ -70,7 +70,7 @@ You can run this project locally with just a browser and TypeScript compiler.
 
 ### 1. instructions to Clone the repository 
 ## MACOS 
-```
+``` bash
 # Navigate to downloads
 cd ~/Downloads
 # Clone the repository
