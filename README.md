@@ -123,8 +123,8 @@ Paste this JSON into the editor to test:
 }
 ```
 
-You can find errors when cloning to files and opening `index.html` only `index.html` is working not the typescript and Javascript file
-**Consider using IDE like Visual studio VS code or Notepad++**
+You can find errors when cloning to files and opening `index.html`. Only `index.html` is working not the typescript and Javascript file
+**Consider using an IDE like: Visual studio, VS code, Cursor or Notepad++**
 
 ## ⚙️ Roadmap / Future Ideas
   Search bar for keys/values
