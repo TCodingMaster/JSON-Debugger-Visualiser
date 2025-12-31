@@ -14,19 +14,19 @@ A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScri
 
 ---
 
-## 🌟 Features
+##  Features
 
-- 🧠 **Paste JSON → Visual Tree:** Instantly parse and visualize JSON structures in an expandable tree view.  
-- ✏️ **Inline Editing:** Edit keys or values directly in the tree, with real-time validation.  
-- ⚠️ **Error Detection:** Highlights invalid JSON syntax and duplicate or empty keys.  
-- 🌓 **Light/Dark Theme Toggle:** Built-in theme switcher for comfortable viewing.  
-- 🌍 **Multi-language Support:** English and Slovenian (easily extendable).  
-- 💾 **Export to `.json`:** Save your modified JSON back to disk.  
-- 🧱 **Zero Dependencies:** 100% client-side, no frameworks or build tools required.
+-  **Paste JSON → Visual Tree:** Instantly parse and visualize JSON structures in an expandable tree view.  
+-  **Inline Editing:** Edit keys or values directly in the tree, with real-time validation.  
+-  **Error Detection:** Highlights invalid JSON syntax and duplicate or empty keys.  
+-  **Light/Dark Theme Toggle:** Built-in theme switcher for comfortable viewing.  
+-  **Multi-language Support:** English and Slovenian (easily extendable).  
+-  **Export to `.json`:** Save your modified JSON back to disk.  
+-  **Zero Dependencies:** 100% client-side, no frameworks or build tools required.
 
 ---
 
-## 🧰 Tech Stack
+##  Tech Stack
 
 | Area | Technology |
 |------|-------------|
@@ -38,15 +38,13 @@ A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScri
 
 ---
 
-## 🚀 Live Demo
-
-👉 *(Add your GitHub Pages or Netlify link here once you deploy it)*  
-Example:  
+##  Live Demo
+ 
 **[Try it online](https://yourusername.github.io/json-debugger/)**
 
 ---
 
-## 🧩 How It Works
+##  How It Works
 
 1. Enter or paste your JSON into the left-side editor.  
 2. Click **“Parse JSON”** to render it as a collapsible tree.  
@@ -59,7 +57,7 @@ Example:
 
 ---
 
-## 🗂️ Project Structure
+##  Project Structure
 
 /
 ├── index.html # Main HTML entry file
@@ -73,13 +71,13 @@ Copy code
 
 ---
 
-## 🛠️ Development
+##  Development
 
 You can run this project locally with just a browser and TypeScript compiler.
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/json-debugger.git
+git clone https://github.com/TCodingMaster/JSON-Debugger-Visualiser.git
 cd json-debugger
 2. Compile TypeScript (if you modify it)
 bash
@@ -89,7 +87,7 @@ tsc app.ts --target ES6 --outFile app.js
 Simply open index.html in your browser — no server needed.
 ```
 
-## 🧑‍💻 Example
+##  Example
 Paste this JSON into the editor to test:
 ```
 json
