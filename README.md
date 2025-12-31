@@ -126,16 +126,6 @@ Paste this JSON into the editor to test:
 You can find errors when cloning to files and opening `index.html`. Only `index.html` is working not the typescript and Javascript file
 **Consider using an IDE like: Visual studio, VS code, Cursor or Notepad++**
 
-## Roadmap / Future Ideas
-  Search bar for keys/values
-
-  Syntax highlighting for raw JSON input
-
-  Keyboard shortcuts (Expand All / Collapse All)
-
-  Drag-and-drop JSON file input
-
-  Optional autosave to localStorage
 
 ## License
  This project is licensed under the MIT License — feel free to use, modify, and share it.
