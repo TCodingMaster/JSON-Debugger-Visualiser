@@ -5,13 +5,6 @@ A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScri
 
 ## App Screenshot Dark mode 
 <img width="1910" height="888" alt="Screenshot_20251029_224536" src="https://github.com/user-attachments/assets/9198464f-d76f-466d-a4da-6d62a0b90b2c" />
-
-
-*(Add a real screenshot of your app once deployed!)*
-
-## Try directly from your browser: 
-"https://tcodingmaster.github.io/JSON-Debugger-Visualiser/"
-
 ---
 
 ##  Features
@@ -40,7 +33,7 @@ A lightweight **web-based JSON Debugger &amp; Visualizer** built with **TypeScri
 
 ##  Live Demo
  
-**[Try it online](https://yourusername.github.io/json-debugger/)**
+**[Try it online](https://tcodingmaster.github.io/JSON-Debugger-Visualiser/)**
 
 ---
 
