@@ -66,7 +66,7 @@ Copy code
 
 ##  Development
 
-You can run this project locally with just a browser and TypeScript compiler.
+You can run this project locally with just a browser and TypeScript compiler or an IDE.
 
 ### 1. instructions to Clone the repository 
 ## MACOS 
