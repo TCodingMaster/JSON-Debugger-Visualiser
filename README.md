@@ -129,7 +129,7 @@ You can find errors when cloning to files and opening `index.html`. Only `index.
 
 ## License
  This project is licensed under the MIT License — feel free to use, modify, and share it.
- © 2025 [Your Name or GitHub Username]
+ © 2025 [TCodingMaster]
 
 ## Acknowledgments
   Built in pure TypeScript.
