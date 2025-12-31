@@ -126,7 +126,7 @@ Paste this JSON into the editor to test:
 You can find errors when cloning to files and opening `index.html`. Only `index.html` is working not the typescript and Javascript file
 **Consider using an IDE like: Visual studio, VS code, Cursor or Notepad++**
 
-## ⚙️ Roadmap / Future Ideas
+## Roadmap / Future Ideas
   Search bar for keys/values
 
   Syntax highlighting for raw JSON input
@@ -137,20 +137,20 @@ You can find errors when cloning to files and opening `index.html`. Only `index.
 
   Optional autosave to localStorage
 
-## 🪪 License
+## License
  This project is licensed under the MIT License — feel free to use, modify, and share it.
  © 2025 [Your Name or GitHub Username]
 
-## 🙌 Acknowledgments
+## Acknowledgments
   Built in pure TypeScript.
 
  Inspired by developer tools like VSCode’s JSON viewer and online JSON explorers.
 
  Localization: English 🇬🇧 and Slovenian 🇸🇮.
 
-## 💡 Author
+##  Author
 [Tin Lipovsek / TCodingMaster]
-📂 https://github.com/TCodingMaster
+https://github.com/TCodingMaster
 https://instagram.com/tinkoo_08/
 
 
@@ -160,8 +160,8 @@ https://instagram.com/tinkoo_08/
 ---
 
 ### Would you like me to:  
- - ✨ include your **name or GitHub username** automatically in the license + README placeholders,  
- and  - 📦 generate a `.zip` with the full README + LICENSE ready to upload to your repo?
+ - include your **name or GitHub username** automatically in the license + README placeholders,  
+ and  - generate a `.zip` with the full README + LICENSE ready to upload to your repo?
 
 
 
