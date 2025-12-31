@@ -68,14 +68,18 @@ Copy code
 
 You can run this project locally with just a browser and TypeScript compiler.
 
-### 1. Clone the repository
+### 1. Clone the repository MACOS 
 ```bash
+#navigate to downloads
+cd /users/user/Downloads
+#then git clone the files
 git clone https://github.com/TCodingMaster/JSON-Debugger-Visualiser.git
 # Navigate into the existing directory and pull
 cd JSON-Debugger-Visualiser
-# If you already have the repository cloned, you can just update it:
-git pull origin main
-```
+git pull
+#then just open it in finder
+open .
+
 
 ##  Example
 Paste this JSON into the editor to test:
