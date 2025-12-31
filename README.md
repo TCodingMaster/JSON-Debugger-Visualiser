@@ -70,19 +70,20 @@ You can run this project locally with just a browser and TypeScript compiler.
 
 ### 1. instructions to Clone the repository 
 ## MACOS 
-```bash
-#navigate to downloads
-cd /users/user/Downloads
-#then git clone the files
+```
+# Navigate to downloads
+cd ~/Downloads
+# Clone the repository
 git clone https://github.com/TCodingMaster/JSON-Debugger-Visualiser.git
-# Navigate into the existing directory and pull
+# Navigate into the directory
 cd JSON-Debugger-Visualiser
+# Pull latest changes (if already cloned)
 git pull
-#then just open it in finder
+# Open in Finder
 open .
 ```
 ## Windows
-``` cmd
+``` shell
 # Navigate to downloads
 cd C:\Users\%USERNAME%\Downloads
 # Clone the repository
