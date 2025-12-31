@@ -71,13 +71,10 @@ You can run this project locally with just a browser and TypeScript compiler.
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/TCodingMaster/JSON-Debugger-Visualiser.git
-cd json-debugger
-2. Compile TypeScript (if you modify it)
-bash
-Copy code
-tsc app.ts --target ES6 --outFile app.js
-3. Open in your browser
-Simply open index.html in your browser — no server needed.
+# Navigate into the existing directory and pull
+cd JSON-Debugger-Visualiser
+# If you already have the repository cloned, you can just update it:
+git pull origin main
 ```
 
 ##  Example
