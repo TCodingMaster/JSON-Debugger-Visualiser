@@ -76,3 +76,19 @@ sample, so the daily forward test decides whether it holds.
 stop, 1.5R target), plays each one out virtually with a running win-rate table, and sends alerts.
 Its fill-bar handling is simpler than the backtester's, so its table is a close guide; the Python lab
 and the Pine strategy remain the reference.
+
+## Update: one trade a day on MNQ 15m (indicator v2)
+
+Goal: about one trade a day on MNQ 15m without losing the win rate (1.5R). Variants checked on MNQ 15m
+and, for robustness, MNQ 5m and MGC 15m:
+
+| Variant (max 1 trade/day) | Days with a trade | Win rate | Avg R | Out-of-sample |
+|---|---|---|---|---|
+| **Quality:** Asia + London | 52 % | 68 % | +0.68R | 11 trades, 82 % |
+| **Balanced:** + NY AM as fallback | 60 % | 62 % | +0.52R | 13 trades, 77 % |
+| Whole night 20:00–08:30 | 72 % | 51 % | +0.26R | 60 % |
+| MNQ 15m + MGC 15m as backup | 86–94 % | 51 % | +0.26–0.29R | 56–60 % |
+
+More trading days always cost win rate; a trade every day at ~65 % is not in this data. Indicator v2
+offers the first two as modes. Its virtual-trade tracking is checked against the backtest engine by
+`tests/test_indicator_tracking.py` (identical trades; exit prices within one tick).
