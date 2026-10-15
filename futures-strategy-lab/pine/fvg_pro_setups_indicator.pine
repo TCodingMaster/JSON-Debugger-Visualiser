@@ -1,6 +1,6 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// FVG Pro Setups v2 — iskalnik setupov za MNQ 15m (BOS + FVG, 1.5R)
+// FVG Pro Setups v2 — iskalnik setupov za MNQ 15m (BOS + FVG, 1.5R) + moja pravila
 //
 // Setup (ista pravila kot pine/fvg_pro_strategy.pine in lab/fvg_pro.py):
 //   • BOS: sveča zapre čez zadnji potrjen swing (3 bari na vsako stran).
@@ -18,7 +18,16 @@
 // Vsak setup se virtualno odigra z istim modelom kot backtest (sveča vstopa:
 // open → bližji ekstrem → drugi ekstrem → close; stop in target v isti sveči
 // odloči ista pot). Tabela kaže WR, R, % dni s trade-om in panel "Danes".
-// Alerti: nov setup, vstop, TP, SL. Ni finančni nasvet.
+// Alerti: nov setup, vstop, TP, SL, dnevni limit dosežen.
+//
+// Moja pravila (iz analize 59 paper trade-ov, 23. 7. – 15. 10. 2026):
+//   1) samo MNQ (2) ali MGC (1) — na drugih simbolih ni setupov, rdeče opozorilo
+//   2) dnevni limit trade-ov (privzeto 2; način Kvaliteta sam omeji na 1)
+//   3) osenčene moje najboljše ure 11:00–18:00 po slovenskem času
+//   4) SL/TP ob vstopu, ne premikaj (opomnik v oznaki in alertu)
+//   5) brez impulznih vstopov — samo setupi tega indikatorja
+// Indikator ne vidi tvojih ročnih trade-ov: limit šteje njegove setupe.
+// Ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("FVG Pro Setups v2", overlay = true, max_boxes_count = 400, max_lines_count = 500,
      max_labels_count = 400, max_bars_back = 300)
@@ -62,6 +71,14 @@ goalWr    = input.float(60.0, "Cilj: WR %", group = G4)
 colLong   = input.color(color.new(color.teal, 0), "Long barva", group = G4)
 colShort  = input.color(color.new(color.red, 0), "Short barva", group = G4)
 
+G5 = "Moja pravila (iz analize mojih trade-ov)"
+ruleSymbols = input.bool(true, "1) Samo MNQ in MGC (na drugih simbolih ni setupov + opozorilo)", group = G5)
+dailyCap    = input.int(2, "2) Dnevni limit trade-ov", minval = 1, group = G5,
+     tooltip = "Tvoj 3. trade dneva je bil v povprečju izgubarski (44 % WR, −$4,545 skupaj). Indikator nikoli ne da več setupov od tega limita (in ne več od načina).")
+showMyHours = input.bool(true, "3) Osenči moje najboljše ure", group = G5)
+myHours     = input.string("0500-1200", "   Moje ure (New York čas = 11:00–18:00 v Sloveniji)", group = G5)
+showRules   = input.bool(true, "Pokaži pravila v tabeli", group = G5)
+
 // ── Mode → sessions / max trades ─────────────────────────────────────────────
 custom = mode == "Po meri"
 s1On = custom ? useS1 : true
@@ -70,7 +87,7 @@ s3On = custom ? useS3 : mode == "Uravnoteženo: + NY AM"
 s1 = custom ? sess1 : "2000-0000"
 s2 = custom ? sess2 : "0200-0500"
 s3 = custom ? sess3 : "0830-1100"
-maxTrades = custom ? maxTradesC : 1
+maxTrades = math.min(custom ? maxTradesC : 1, dailyCap)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 TZ = "America/New_York"
@@ -88,7 +105,9 @@ gday(t) =>
 flatMin = hm(flatHM, 0)
 afterFlat(int m) => m >= flatMin and m < 18 * 60
 modOpen = minuteOfDay(time)
-inSess  = (s1On and inWindow(s1, modOpen)) or (s2On and inWindow(s2, modOpen)) or (s3On and inWindow(s3, modOpen))
+allowedSym = syminfo.root == "MNQ" or syminfo.root == "MGC"
+inSess  = ((s1On and inWindow(s1, modOpen)) or (s2On and inWindow(s2, modOpen)) or (s3On and inWindow(s3, modOpen))) and (not ruleSymbols or allowedSym)
+inMyHours = inWindow(myHours, modOpen)
 tick = syminfo.mintick
 buf  = bufTicks * tick
 atr  = ta.atr(14)
@@ -99,6 +118,7 @@ emaH  = ta.ema(close, 20 * barsPerHour)
 trend = math.sign(emaH - emaH[barsPerHour])
 
 bgcolor(showSess and inSess ? color.new(color.gray, 93) : na, title = "Seja za setupe")
+bgcolor(showMyHours and inMyHours ? color.new(color.blue, 95) : na, title = "Moje ure")
 
 // ── Structure (identical to the strategy) ────────────────────────────────────
 hiR = ta.highest(high, pivotLen)
@@ -426,16 +446,25 @@ if nSet > 0 and aSide == 0 and dayTrades < maxTrades and not afterFlat(modOpen) 
             plS := line.new(bar_index, st, bar_index, st, color = color.red, style = line.style_dashed)
             plT := line.new(bar_index, tgt, bar_index, tgt, color = color.green, style = line.style_dashed)
             label.new(bar_index, side > 0 ? low : high, (side > 0 ? "LONG" : "SHORT") + " setup\nE " + str.tostring(entry) +
-                 "\nSL " + str.tostring(st) + "\nTP " + str.tostring(tgt, format.mintick),
+                 "\nSL " + str.tostring(st) + "\nTP " + str.tostring(tgt, format.mintick) + "\nSL/TP takoj, ne premikaj",
                  color = color.new(col, 20), textcolor = color.white, size = size.small,
                  style = side > 0 ? label.style_label_up : label.style_label_down)
             todayTxt := "setup čaka"
             alert(syminfo.ticker + " FVG Pro: " + (side > 0 ? "LONG" : "SHORT") + " setup — limit " + str.tostring(entry) +
-                 ", SL " + str.tostring(st) + ", TP " + str.tostring(tgt, format.mintick), alert.freq_once_per_bar_close)
+                 ", SL " + str.tostring(st) + ", TP " + str.tostring(tgt, format.mintick) +
+                 ". Nastavi SL in TP ob vstopu in ju ne premikaj. Velikost: " + str.tostring(qty) + " pogodbi.", alert.freq_once_per_bar_close)
+
+// daily limit reached → one alert, panel says the day is done
+var bool capAlerted = false
+if newDay
+    capAlerted := false
+if dayTrades >= maxTrades and aSide == 0 and not capAlerted
+    capAlerted := true
+    alert(syminfo.ticker + " FVG Pro: dnevni limit (" + str.tostring(maxTrades) + ") dosežen — konec trgovanja za danes.", alert.freq_once_per_bar_close)
 
 // ── Table and "Danes" panel ──────────────────────────────────────────────────
 if showTable and barstate.islast
-    var table tb = table.new(position.top_right, 2, 10, bgcolor = color.new(color.black, 15), border_width = 1)
+    var table tb = table.new(position.top_right, 2, 16, bgcolor = color.new(color.black, 15), border_width = 1)
     int n = nWins + nLoss
     float wr = n > 0 ? 100.0 * nWins / n : 0.0
     int nxt = 1440
@@ -466,3 +495,25 @@ if showTable and barstate.islast
     table.cell(tb, 1, 8, last10 == "" ? "–" : last10, text_color = color.white)
     table.cell(tb, 0, 9, "Neto (brez stroškov)", text_color = color.white)
     table.cell(tb, 1, 9, "$" + str.tostring(sumUsd, "#,###"), text_color = sumUsd >= 0 ? color.lime : color.red)
+    if showRules
+        bool done = dayTrades >= maxTrades
+        table.cell(tb, 0, 10, "MOJA PRAVILA", text_color = color.aqua)
+        table.cell(tb, 1, 10, "", text_color = color.aqua)
+        table.cell(tb, 0, 11, "1 Simbol in velikost", text_color = color.white)
+        table.cell(tb, 1, 11, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog. (vedno enako)" : "✗ samo MNQ ali MGC!",
+             text_color = allowedSym ? color.lime : color.red)
+        table.cell(tb, 0, 12, "2 Trade-i danes", text_color = color.white)
+        table.cell(tb, 1, 12, str.tostring(dayTrades) + " / " + str.tostring(maxTrades) + (done ? " — konec za danes" : ""),
+             text_color = done ? color.red : color.lime)
+        table.cell(tb, 0, 13, "3 Moje ure (11–18 SLO)", text_color = color.white)
+        table.cell(tb, 1, 13, inMyHours ? "zdaj ✓" : "ne zdaj", text_color = inMyHours ? color.lime : color.gray)
+        table.cell(tb, 0, 14, "4 SL in TP", text_color = color.white)
+        table.cell(tb, 1, 14, "ob vstopu, nikoli ne premikaj", text_color = color.white)
+        table.cell(tb, 0, 15, "5 Brez impulznih vstopov", text_color = color.white)
+        table.cell(tb, 1, 15, "samo na setup tega indikatorja", text_color = color.white)
+
+// rule 1: loud warning on any other symbol (GC1! cost −$4,320 in two trades)
+if ruleSymbols and not allowedSym and barstate.islast
+    var table warn = table.new(position.bottom_center, 1, 1, bgcolor = color.new(color.red, 10))
+    table.cell(warn, 0, 0, "⚠ PRAVILO 1: trguj samo MNQ (2 pogodbi) ali MGC (1). Ta graf: " + syminfo.ticker +
+         ". Dva trade-a na GC1! sta te stala −$4,320.", text_color = color.white, text_size = size.large)
