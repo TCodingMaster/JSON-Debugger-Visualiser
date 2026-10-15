@@ -55,6 +55,15 @@ dashboard shows a warning banner for them.
 Useful flags: `--be 1` (move stop to break-even at 1R), `--slippage 2`,
 `--max-trades 1`, `--strategies lsrb_fvg turtle_soup`, `--param wick_ratio=0.5`.
 
+## FVG Pro: the strategy
+
+`python lab.py fvgpro` backtests the strategy picked from the research (break of structure +
+FVG, edge entry, fixed 2R, Asia + London sessions). It writes trade CSVs, `results/fvg_pro/equity.png`,
+`example_trade.png` and **`fvg-pro.html`**, a trade-by-trade replay chart you can click through.
+The same rules are in **`pine/fvg_pro_strategy.pine`** for the TradingView Strategy Tester. A test
+checks that the Pine logic and the Python logic produce identical signals.
+Results and caveats: `results/fvg_pro/REPORT.md`.
+
 ## Daily research run
 
 `python lab.py research --update` is designed to run once a day after the US close:

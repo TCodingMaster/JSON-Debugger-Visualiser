@@ -65,6 +65,9 @@ class EngineConfig:
     min_risk_ticks: int = 4
     max_risk_atr: float = 3.0  # skip setups with a stop wider than this × ATR
     contracts: int | None = None  # override the instrument default
+    # "conservative": stop first when stop and target share a bar.
+    # "path": TradingView's broker-emulator assumption (open -> nearer extreme -> farther extreme).
+    intrabar: str = "conservative"
     extra: dict = field(default_factory=dict)
 
 
@@ -118,6 +121,10 @@ def run(feat: Features, setups: list[Setup], inst: Instrument, cfg: EngineConfig
                 hit_tgt = (h[i] >= target) if side > 0 else (l[i] <= target)
                 if gap_through:
                     close_pos(i, o[i] - side * slip, "be" if pos["be_done"] else "sl")
+                elif hit_stop and hit_tgt and cfg.intrabar == "path" and (
+                        (h[i] - o[i] < o[i] - l[i]) if side > 0 else (o[i] - l[i] < h[i] - o[i])):
+                    # open is nearer the target side: TradingView assumes it is reached first
+                    close_pos(i, target, "tp")
                 elif hit_stop:
                     close_pos(i, stop - side * slip, "be" if pos["be_done"] else "sl")
                 elif hit_tgt:

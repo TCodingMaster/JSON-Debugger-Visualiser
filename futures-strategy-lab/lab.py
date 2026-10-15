@@ -171,6 +171,19 @@ def cmd_research(args):
     print("wrote lab-research.js and results/research/ — open mock.html")
 
 
+def cmd_fvgpro(args):
+    """FVG Pro: locked BOS + FVG strategy -> trades, charts, replay page."""
+    from lab import fvg_pro, research
+    ds = (research.update_store(args.symbols, args.timeframes) if args.update
+          else research.load_store(args.symbols, args.timeframes))
+    if not ds:
+        raise SystemExit("no data in data/store: run `python lab.py research --update` first")
+    if args.develop:
+        fvg_pro.develop(ds)
+    fvg_pro.final_report(ds)
+    print("wrote fvg-pro.html and results/fvg_pro/ (trades CSVs, equity.png, example_trade.png)")
+
+
 def cmd_concepts(args):
     for c in report.load_concepts():
         print(f"{c['id']:16s} {c['name']}\n{'':16s} source: {c['source']['trader']}  "
@@ -226,6 +239,13 @@ def main(argv=None):
     p.add_argument("--rr", type=float, default=2.0)
     p.add_argument("--date", help="override today's date (YYYY-MM-DD) for the history log")
     p.set_defaults(fn=cmd_research, source="yf")
+
+    p = sub.add_parser("fvgpro", help="FVG Pro strategy: backtest, charts and trade-replay page (mirrors the Pine file)")
+    p.add_argument("--symbols", nargs="+", default=["MNQ", "MGC"])
+    p.add_argument("--timeframes", nargs="+", default=["1m", "2m", "3m", "5m", "15m"])
+    p.add_argument("--update", action="store_true")
+    p.add_argument("--develop", action="store_true", help="re-run the in-sample development grid first")
+    p.set_defaults(fn=cmd_fvgpro)
 
     p = sub.add_parser("concepts", help="list the concept database")
     p.set_defaults(fn=cmd_concepts)

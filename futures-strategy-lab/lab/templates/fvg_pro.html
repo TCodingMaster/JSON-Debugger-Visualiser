@@ -1,0 +1,257 @@
+<title>FVG Pro Backtest</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one working column — header, stat strip, chart + trade list side by side (stacked on phones), equity, rules. */
+:root {
+  --bg: #f3f4f1; --panel: #ffffff; --ink: #161a17; --ink-2: #4b544d; --ink-3: #737d75;
+  --line: #d9ddd6; --accent: #1f6f5c; --accent-soft: #dcefe8;
+  --up: #1d7a52; --down: #b3361f; --zone: rgba(31,111,92,.16); --warn-bg: #fbf1d9; --warn: #7a5600;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121512; --panel: #1a1e1b; --ink: #e7ebe6; --ink-2: #b2bab3; --ink-3: #87908a;
+  --line: #2d332e; --accent: #5cc3a4; --accent-soft: #1d3a31;
+  --up: #45c08a; --down: #ef7a62; --zone: rgba(92,195,164,.16); --warn-bg: #3a2f14; --warn: #f0cf7a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121512; --panel: #1a1e1b; --ink: #e7ebe6; --ink-2: #b2bab3; --ink-3: #87908a;
+  --line: #2d332e; --accent: #5cc3a4; --accent-soft: #1d3a31;
+  --up: #45c08a; --down: #ef7a62; --zone: rgba(92,195,164,.16); --warn-bg: #3a2f14; --warn: #f0cf7a; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+h1, h2 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: 1.9rem; line-height: 1.1; }
+h2 { font-size: 1.15rem; }
+p { margin: 0; }
+.head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.head .sub { color: var(--ink-2); max-width: 70ch; margin-top: 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select, button { font: 500 .9rem var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; min-height: 36px; padding: 0 10px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible, tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.stat { background: var(--panel); padding: 10px 12px; }
+.stat .l { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 600; }
+.stat .v { font: 500 1.25rem/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+.stat .s { font-size: .78rem; color: var(--ink-3); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.goal { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 14px; font-size: .92rem; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+#chart { height: 460px; width: 100%; }
+#equity { height: 200px; width: 100%; }
+.chart-top { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.legend { font: .82rem var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.tlist { max-height: 520px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--ink-3);
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; padding: 6px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 5px 6px; border-bottom: 1px solid var(--line); font-family: var(--mono); white-space: nowrap; }
+td.n, th.n { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--accent-soft); }
+tbody tr.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+tr.oos-start td { border-top: 2px dashed var(--accent); }
+.tag { font: 600 .68rem var(--body); padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .05em; }
+.tag.tp { background: var(--up); color: var(--panel); } .tag.sl { background: var(--down); color: var(--panel); }
+.tag.eod { background: var(--line); color: var(--ink); }
+.scroll { overflow-x: auto; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.rules ol { margin: 6px 0 0; padding-left: 20px; color: var(--ink-2); }
+.rules li { margin: 3px 0; }
+.small { font-size: .85rem; color: var(--ink-2); }
+.err { color: var(--down); font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <div>
+      <h1>FVG Pro Backtest</h1>
+      <p class="sub">Break of structure, then enter the fair value gap it leaves behind. Fixed 2:1, 2 MNQ or 1 MGC, Asia and London sessions. Every trade below is from real Yahoo Finance bars, shown in New York time.</p>
+    </div>
+    <div class="controls">
+      <label for="ds" class="small">Market</label>
+      <select id="ds"></select>
+      <button id="prev" type="button">◀ Prev trade</button>
+      <button id="next" type="button">Next trade ▶</button>
+    </div>
+  </header>
+
+  <section class="stats" id="stats" aria-label="Backtest statistics"></section>
+  <p class="goal" id="goal"></p>
+
+  <div class="main">
+    <section class="panel">
+      <div class="chart-top"><h2 id="chartTitle">Chart</h2><span class="legend" id="legend">Click a trade to jump to it</span></div>
+      <div id="chart" role="img" aria-label="Candlestick chart with trade entries and exits"></div>
+      <p class="small" id="chartNote" style="margin-top:8px">Green line: entry · red: stop · dashed: 2R target · grey dotted: the FVG that was traded. ▲▼ entries, ● exits.</p>
+    </section>
+    <section class="panel">
+      <h2 style="margin-bottom:8px">Trades</h2>
+      <div class="tlist"><table><thead><tr><th>Entry (NY)</th><th>Side</th><th class="n">R</th><th class="n">$</th><th>Exit</th></tr></thead><tbody id="trades"></tbody></table></div>
+      <p class="small" style="margin-top:8px">The dashed line marks where the out-of-sample period starts: rules were chosen before these trades were seen.</p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2 style="margin-bottom:8px">Equity, $ (net of commissions and slippage)</h2>
+    <div id="equity" role="img" aria-label="Equity curve"></div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin-bottom:8px">All markets and timeframes</h2>
+    <div class="scroll"><table id="all"></table></div>
+  </section>
+
+  <section class="panel rules">
+    <div>
+      <h2>Rules (long; shorts mirror)</h2>
+      <ol>
+        <li>A swing high is confirmed 3 bars after it prints.</li>
+        <li>Break of structure: a candle closes above the last swing high.</li>
+        <li>The earliest bullish FVG (gap between candle 1's high and candle 3's low, at least 0.15 × ATR) from 3 bars before to 3 bars after the break.</li>
+        <li>Limit order at the top edge of the gap, valid 20 bars. Cancelled if a candle closes below the gap.</li>
+        <li>Stop 2 ticks below the lowest low of the move. Target 2R.</li>
+        <li>New setups only 20:00–24:00 and 02:00–05:00 New York time. Max 2 trades per day, flat by 15:55.</li>
+      </ol>
+    </div>
+    <div>
+      <h2>How it was chosen</h2>
+      <ol>
+        <li>80 rule variations were scored on the first 60% of each dataset only.</li>
+        <li>The pick was the most consistent one (profitable on 10 of 10 markets × timeframes), not the highest number. The highest-scoring variant won 58–70% in that period and fell to 23–39% afterwards.</li>
+        <li>The last 40% was untouched until the rules were locked.</li>
+      </ol>
+      <p class="small" style="margin-top:8px">Hypothetical results on a short sample. Not financial advice.</p>
+    </div>
+  </section>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  if (!DATA || !window.LightweightCharts) {
+    $('legend').innerHTML = '<span class="err">The chart library could not load. Check your connection and reload.</span>';
+    return;
+  }
+  const S = DATA.summary.sets, R = DATA.replay;
+  const fmtR = x => x == null ? '–' : (x > 0 ? '+' : '') + x.toFixed(2) + 'R';
+  const fmtP = x => x == null ? '–' : (x * 100).toFixed(1) + '%';
+  const fmtU = x => x == null ? '–' : (x < 0 ? '−$' : '+$') + Math.abs(Math.round(x)).toLocaleString('en-US');
+  const cls = x => x > 0 ? 'pos' : x < 0 ? 'neg' : '';
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const keys = Object.keys(R);
+  $('ds').innerHTML = keys.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+
+  const base = () => ({
+    layout: { background: { color: css('--panel') }, textColor: css('--ink-2'), fontFamily: css('--mono') },
+    grid: { vertLines: { color: css('--line') }, horzLines: { color: css('--line') } },
+    rightPriceScale: { borderColor: css('--line') },
+    timeScale: { borderColor: css('--line'), timeVisible: true, secondsVisible: false },
+    crosshair: { mode: 0 },
+  });
+  const chart = LightweightCharts.createChart($('chart'), { ...base(), autoSize: true });
+  const candles = chart.addCandlestickSeries();
+  const eqChart = LightweightCharts.createChart($('equity'), { ...base(), autoSize: true });
+  const eq = eqChart.addAreaSeries({ lineWidth: 2 });
+  function paint() {
+    chart.applyOptions(base()); eqChart.applyOptions(base());
+    candles.applyOptions({ upColor: css('--up'), downColor: css('--down'), borderVisible: false,
+      wickUpColor: css('--up'), wickDownColor: css('--down') });
+    eq.applyOptions({ lineColor: css('--accent'), topColor: css('--zone'), bottomColor: 'rgba(0,0,0,0)' });
+  }
+  paint();
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { paint(); select(cur); }); } catch (e) {}
+  new MutationObserver(() => { paint(); select(cur); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  let ds = null, cur = -1, lines = [];
+  let focus = null;  // keep the selected trade's stop and target inside the price scale
+  candles.applyOptions({ autoscaleInfoProvider: orig => {
+    const r = orig();
+    if (!r || !focus) return r;
+    return { ...r, priceRange: { minValue: Math.min(r.priceRange.minValue, focus.lo), maxValue: Math.max(r.priceRange.maxValue, focus.hi) } };
+  } });
+  function load(key) {
+    ds = R[key];
+    const seen = new Set(), bars = [];
+    for (const b of ds.bars) { if (!seen.has(b[0]) && (!bars.length || b[0] > bars[bars.length - 1].time)) { seen.add(b[0]); bars.push({ time: b[0], open: b[1], high: b[2], low: b[3], close: b[4] }); } }
+    candles.setData(bars);
+    const mk = [];
+    ds.trades.forEach(t => {
+      const long = t.side === 'long';
+      mk.push({ time: t.entry_ts, position: long ? 'belowBar' : 'aboveBar', color: long ? css('--up') : css('--down'), shape: long ? 'arrowUp' : 'arrowDown' });
+      mk.push({ time: t.exit_ts, position: long ? 'aboveBar' : 'belowBar', color: t.r > 0 ? css('--up') : css('--down'), shape: 'circle' });
+    });
+    mk.sort((a, b) => a.time - b.time);
+    candles.setMarkers(mk);
+    let cum = 0;
+    const pts = [];
+    ds.trades.forEach(t => { cum += t.pnl; const tm = Math.max(t.exit_ts, (pts.length ? pts[pts.length - 1].time + 1 : 0)); pts.push({ time: tm, value: Math.round(cum * 100) / 100 }); });
+    eq.setData(pts);
+    eqChart.timeScale().fitContent();
+    const s = S[key], m = s.metrics, a = s.in_sample, o = s.out_of_sample;
+    $('chartTitle').textContent = key;
+    $('stats').innerHTML = [
+      ['Trades', m.trades, `${s.start.slice(0, 10)} → ${s.end.slice(0, 10)}`],
+      ['Win rate', fmtP(m.win_rate), `goal 60%`],
+      ['Avg per trade', `<span class="${cls(m.expectancy_r)}">${fmtR(m.expectancy_r)}</span>`, `payoff ${m.payoff_ratio.toFixed(2)}`],
+      ['Profit factor', m.profit_factor.toFixed(2), ''],
+      ['Net', `<span class="${cls(m.net_pnl)}">${fmtU(m.net_pnl)}</span>`, `max DD ${fmtU(-m.max_dd)}`],
+      ['In-sample', fmtP(a.win_rate), `${a.trades} trades · ${fmtR(a.expectancy_r)}`],
+      ['Out-of-sample', fmtP(o.win_rate), `${o.trades} trades · ${fmtR(o.expectancy_r)}`],
+    ].map(([l, v, s2]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s2}</div></div>`).join('');
+    $('goal').textContent = m.win_rate >= 0.6
+      ? `Win rate ${fmtP(m.win_rate)} meets the 60% goal on ${m.trades} trades. Small samples swing a lot, so check the out-of-sample column.`
+      : `Win rate ${fmtP(m.win_rate)} is below your 60% goal. At a fixed 2:1, anything above 33.3% makes money, and this one averaged ${fmtR(m.expectancy_r)} per trade.`;
+    let oosDone = false;
+    $('trades').innerHTML = ds.trades.map((t, i) => {
+      const first = !oosDone && t.entry_time >= ds.cut; if (first) oosDone = true;
+      return `<tr data-i="${i}" tabindex="0" class="${first ? 'oos-start' : ''}"><td>${esc(t.entry_time.slice(5, 16).replace('T', ' '))}</td><td>${t.side === 'long' ? '▲ L' : '▼ S'}</td><td class="n ${cls(t.r)}">${fmtR(t.r)}</td><td class="n ${cls(t.pnl)}">${fmtU(t.pnl)}</td><td><span class="tag ${esc(t.reason)}">${esc(t.reason)}</span></td></tr>`;
+    }).join('');
+    select(ds.trades.length ? ds.trades.length - 1 : -1);
+  }
+  function select(i) {
+    if (!ds) return;
+    lines.forEach(l => candles.removePriceLine(l)); lines = [];
+    document.querySelectorAll('#trades tr.sel').forEach(r => r.classList.remove('sel'));
+    cur = i;
+    focus = null;
+    if (i < 0 || i >= ds.trades.length) { chart.timeScale().fitContent(); return; }
+    const t = ds.trades[i];
+    focus = { lo: Math.min(t.stop, t.target, t.entry), hi: Math.max(t.stop, t.target, t.entry) };
+    const row = document.querySelector(`#trades tr[data-i="${i}"]`);
+    if (row) { row.classList.add('sel'); row.scrollIntoView({ block: 'nearest' }); }
+    const g = /FVG ([\d.]+)-([\d.]+)/.exec(t.note || '');
+    const add = (price, color, title, style) => lines.push(candles.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
+    add(t.entry, css('--up'), 'entry', 0);
+    add(t.stop, css('--down'), 'stop', 0);
+    add(t.target, css('--accent'), '2R', 2);
+    if (g) { add(+g[1], css('--ink-3'), 'FVG', 1); add(+g[2], css('--ink-3'), 'FVG', 1); }
+    const span = Math.max(3600, t.exit_ts - t.entry_ts);
+    chart.timeScale().setVisibleRange({ from: t.entry_ts - span * 2 - 1800, to: t.exit_ts + span + 1800 });
+    $('legend').textContent = `#${i + 1} ${t.side} ${t.entry_time.slice(0, 16).replace('T', ' ')} · entry ${t.entry} · stop ${t.stop} · target ${t.target.toFixed(2)} · ${fmtR(t.r)} (${t.reason})`;
+  }
+  $('trades').addEventListener('click', e => { const r = e.target.closest('tr'); if (r) select(+r.dataset.i); });
+  $('trades').addEventListener('keydown', e => { const r = e.target.closest('tr'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); select(+r.dataset.i); } });
+  $('prev').onclick = () => select(Math.max(0, cur - 1));
+  $('next').onclick = () => select(Math.min(ds.trades.length - 1, cur + 1));
+  $('ds').onchange = e => load(e.target.value);
+
+  const order = Object.keys(S).sort();
+  $('all').innerHTML = '<thead><tr><th>Market</th><th class="n">Trades</th><th class="n">Win rate</th><th class="n">Avg R</th><th class="n">PF</th><th class="n">Net</th><th class="n">Max DD</th><th class="n">OOS trades</th><th class="n">OOS win rate</th><th class="n">OOS avg R</th></tr></thead><tbody>' +
+    order.map(k => { const s = S[k], m = s.metrics, o = s.out_of_sample; return `<tr><td>${esc(k)}</td><td class="n">${m.trades}</td><td class="n">${fmtP(m.win_rate)}</td><td class="n ${cls(m.expectancy_r)}">${fmtR(m.expectancy_r)}</td><td class="n">${m.profit_factor.toFixed(2)}</td><td class="n ${cls(m.net_pnl)}">${fmtU(m.net_pnl)}</td><td class="n">${fmtU(-m.max_dd)}</td><td class="n">${o.trades}</td><td class="n">${fmtP(o.win_rate)}</td><td class="n ${cls(o.expectancy_r)}">${fmtR(o.expectancy_r)}</td></tr>`; }).join('') + '</tbody>';
+  load(keys.includes('MNQ 5m') ? 'MNQ 5m' : keys[0]);
+  $('ds').value = keys.includes('MNQ 5m') ? 'MNQ 5m' : keys[0];
+})();
+</script>
