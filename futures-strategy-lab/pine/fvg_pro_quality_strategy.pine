@@ -1,17 +1,17 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// FVG Pro — KVALITETA (MNQ 15m, Asia + London, 1 trade na dan, 2.5R)
+// FVG Pro — KVALITETA (MNQ 15m, Asia + London, 1 trade na dan, 1.5R)
 //
 // Ista pravila kot pine/fvg_pro_strategy.pine in lab/fvg_pro.py, s privzetimi
 // nastavitvami načina "Kvaliteta" iz indikatorja FVG Pro Setups v2:
 //   • graf: MNQ1! 15 minut, 2 pogodbi (samodejno)
 //   • seje (New York čas): Asia 20:00–24:00, London 02:00–05:00
 //     (Slovenija: 02:00–06:00 in 08:00–11:00)
-//   • max 1 trade na Globex dan, TP 2.5R (privzeto; 1.5R = višji WR), SL za ekstremom poteze + 2 ticka
+//   • max 1 trade na Globex dan, TP 1.5R, SL za ekstremom poteze + 2 ticka
 //   • vstop: limit na robu FVG po BOS, velja 20 barov, preklic, če sveča
 //     zapre skozi FVG; vse zaprto do 15:55 NY
 //
-// Python backtest pri 2.5R (Yahoo, 6. 8. – 15. 10. 2026, s provizijo $0.62/stran in
+// Python backtest (Yahoo, 6. 8. – 15. 10. 2026, s provizijo $0.62/stran in
 // 1 tick slippage): glej results/fvg_pro/trades_quality_MNQ_15m.csv za
 // seznam trade-ov, ki ga lahko primerjaš s Strategy Tester → List of Trades.
 //
@@ -23,7 +23,7 @@
 //   5) brez impulznih vstopov — samo setupi te strategije
 // Majhen vzorec (~50 sej). Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("FVG Pro Kvaliteta — MNQ 15m (2.5R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
+strategy("FVG Pro Kvaliteta — MNQ 15m (1.5R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false,
@@ -38,7 +38,7 @@ fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxva
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
 
 G2 = "Risk"
-rr         = input.float(2.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
 bufTicks   = input.int(2, "Stop buffer (ticks)", minval = 0, group = G2)
 stopLook   = input.int(10, "Stop: lowest low from N bars before the BOS", minval = 1, maxval = 50, group = G2)
 expiryBars = input.int(20, "Cancel unfilled order after N bars", minval = 1, group = G2)
