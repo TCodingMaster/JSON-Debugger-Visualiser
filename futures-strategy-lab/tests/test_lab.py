@@ -330,3 +330,22 @@ def test_sweepx_signals_and_htf_bias_never_use_future_bars(cut_frac):
         a = [k(s) for s in sweepx.generate(full, inst, p) if s.bar < cut - 1]
         b = [k(s) for s in sweepx.generate(part, inst, p) if s.bar < cut - 1]
         assert a and a == b, model
+
+
+@pytest.mark.parametrize("mode", ["sweep", "reject", "retest"])
+def test_liquidity_swings_never_use_future_bars(mode):
+    """Liquidity Swings zones and signals on truncated data equal those on full data."""
+    from lab import liq_swings
+    df = data.synthetic("MNQ", days=12, seed=5)
+    inst = data.get_instrument("MNQ")
+    cut = int(len(df) * 0.6)
+    full, part = features.build(df, inst.tick), features.build(df.iloc[:cut], inst.tick)
+    for L, area in ((5, "full"), (14, "wick")):
+        hz_f, lz_f = liq_swings.zones(full, L, area)
+        hz_p, lz_p = liq_swings.zones(part, L, area)
+        assert np.allclose(hz_f[:cut], hz_p, equal_nan=True) and np.allclose(lz_f[:cut], lz_p, equal_nan=True)
+    p = {"mode": mode, "length": 5, "area": "full"}
+    k = lambda s: (s.bar, s.side, s.stop)  # noqa: E731
+    a = [k(s) for s in liq_swings.generate(full, inst, p) if s.bar < cut - 1]
+    b = [k(s) for s in liq_swings.generate(part, inst, p) if s.bar < cut - 1]
+    assert a and a == b
