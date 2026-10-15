@@ -122,5 +122,5 @@ def summary_markdown(p: dict) -> str:
                          f"{m['profit_factor']:.2f} | {m['net_pnl']:,.0f} | {m['max_dd']:,.0f} |")
         else:
             lines.append(f"| {k} | {c['name']} | {total:.0f}* | {s['grade']} | – | 0 | – | – | – | – | – | – |")
-    lines += ["", "\\* provisional: fewer than 10 trades, score built from qualitative components only.", ""]
+    lines += ["", "\\* provisional: fewer than 10 trades: score built from qualitative components only and capped at 45.", ""]
     return "\n".join(lines)

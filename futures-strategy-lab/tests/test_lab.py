@@ -158,7 +158,7 @@ def test_scoring_and_grades():
     assert scoring.grade(81) == "A" and scoring.grade(50) == "C" and scoring.grade(10) == "F"
     c = report.load_concepts()[0]
     s = scoring.score_concept(c, {}, report.GOALS)
-    assert s["provisional"] and s["components"]["backtest"] is None and 0 <= s["total"] <= 100
+    assert s["provisional"] and s["components"]["backtest"] is None and 0 <= s["total"] <= scoring.PROVISIONAL_CAP
 
 
 def test_report_export_roundtrip(tmp_path):
@@ -182,3 +182,12 @@ def test_discover_screening():
     assert bad["verdict"] == "reject" and "income claim" in bad["guru_flags"]
     assert good["credibility_score"] > bad["credibility_score"] and not good["guru_flags"]
     assert set(discover.tag_text("Liquidity sweep into a fair value gap")) >= {"liquidity_sweep", "fvg"}
+
+
+def test_losing_strategy_capped_below_untested():
+    c = report.load_concepts()[1]
+    m = {"trades": 200, "win_rate": 0.25, "expectancy_r": -0.3, "profit_factor": 0.5, "max_dd_r": 30,
+         "payoff_ratio": 1.8, "is": {"trades": 140, "win_rate": 0.25, "expectancy_r": -0.3},
+         "oos": {"trades": 60, "win_rate": 0.25, "expectancy_r": -0.3}}
+    s = scoring.score_concept(c, {"MNQ": m}, report.GOALS)
+    assert not s["provisional"] and s["total"] <= scoring.LOSING_CAP

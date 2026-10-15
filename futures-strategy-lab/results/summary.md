@@ -1,19 +1,19 @@
-# Futures Strategy Lab — results (synthetic data)
+# Futures Strategy Lab — results (real data)
 
-Generated 2026-10-15T16:04:10+00:00. Synthetic random-walk bars (250 sessions) with injected stop-runs. For checking the pipeline only — these numbers are not evidence.
+Generated 2026-10-15T16:16:56+00:00. Yahoo Finance 5m bars, period 60d (front-month continuous, unadjusted)
 
 Plan: fixed 2R per trade, 2 MNQ or 1 MGC; goals WR ≥ 60 %, avg RR ≥ 1.5.
 
 | # | Concept | Score | Grade | Best | Trades | WR | Payoff | Exp (R) | PF | Net $ | Max DD $ |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Session-liquidity sweep & reclaim (Asia / London / overnight) | 67 | B | MGC | 119 | 41.2% | 1.86 | +0.186 | 1.29 | 1,132 | 809 |
-| 2 | Liquidity Sweep + Rejection Block + FVG | 65 | B | MGC | 50 | 48.0% | 1.82 | +0.363 | 1.65 | 1,795 | 642 |
-| 3 | Value-area re-entry (Market Profile 80% rule) | 64* | C | MNQ | 9 | 44.4% | 1.98 | +0.326 | 1.10 | 240 | 1,372 |
-| 4 | "Oops" — open outside yesterday's range, reclaim | 62 | C | MNQ | 21 | 57.1% | 1.65 | +0.526 | 2.65 | 3,644 | 797 |
-| 5 | Turtle Soup (false breakout of a 20-bar extreme) | 55 | C | MNQ | 319 | 32.6% | 1.79 | -0.091 | 0.74 | -11,436 | 11,659 |
-| 6 | VWAP ±2σ band sweep & reclaim | 47 | D | MNQ | 405 | 35.6% | 1.86 | +0.019 | 0.96 | -1,742 | 5,276 |
-| 7 | Opening-range breakout failure | 46 | D | MNQ | 188 | 26.6% | 1.91 | -0.232 | 0.65 | -10,773 | 11,525 |
-| 8 | Inventory Retracement Bar (IRB) | 41 | D | MNQ | 203 | 35.5% | 1.90 | +0.027 | 1.00 | 48 | 3,029 |
-| 9 | Al Brooks H2 / L2 second entry | 30 | F | MNQ | 328 | 33.2% | 1.93 | -0.026 | 0.90 | -4,027 | 7,665 |
+| 1 | Opening-range breakout failure | 60 | C | MGC | 45 | 44.4% | 1.84 | +0.262 | 1.61 | 1,230 | 503 |
+| 2 | Liquidity Sweep + Rejection Block + FVG | 45* | D | MGC | 7 | 42.9% | 1.91 | +0.257 | 1.64 | 204 | 254 |
+| 3 | "Oops" — open outside yesterday's range, reclaim | 45* | D | MGC | 6 | 66.7% | 1.44 | +0.646 | 5.92 | 1,029 | 121 |
+| 4 | Value-area re-entry (Market Profile 80% rule) | 45* | D | MNQ | 3 | 100.0% | 0.00 | +1.048 | 99.00 | 1,067 | 0 |
+| 5 | Turtle Soup (false breakout of a 20-bar extreme) | 40 | D | MNQ | 52 | 25.0% | 1.73 | -0.332 | 0.47 | -3,145 | 3,145 |
+| 6 | Session-liquidity sweep & reclaim (Asia / London / overnight) | 40 | D | MGC | 18 | 33.3% | 1.65 | -0.124 | 0.65 | -367 | 470 |
+| 7 | VWAP ±2σ band sweep & reclaim | 40 | D | MNQ | 66 | 33.3% | 1.80 | -0.071 | 0.82 | -1,059 | 2,109 |
+| 8 | Inventory Retracement Bar (IRB) | 36 | D | MNQ | 23 | 39.1% | 1.78 | +0.091 | 1.00 | 1 | 965 |
+| 9 | Al Brooks H2 / L2 second entry | 29 | F | MGC | 75 | 29.3% | 1.77 | -0.195 | 0.70 | -1,228 | 1,696 |
 
-\* provisional: fewer than 10 trades, score built from qualitative components only.
+\* provisional: fewer than 10 trades: score built from qualitative components only and capped at 45.

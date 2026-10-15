@@ -19,6 +19,8 @@ import math
 WEIGHTS = {"backtest": 40, "fit": 20, "credibility": 15, "ease": 15, "robustness": 10}
 GRADES = [(80, "A"), (65, "B"), (50, "C"), (35, "D")]
 MIN_TRADES_FULL_CONFIDENCE = 100
+PROVISIONAL_CAP = 45.0  # untested ideas can't outrank tested ones on opinion alone
+LOSING_CAP = 40.0       # a tested loser can't outrank an untested idea
 
 
 def _clamp(x, lo=0.0, hi=1.0):
@@ -78,6 +80,10 @@ def score_concept(concept: dict, per_symbol: dict, goals: dict, weights: dict | 
     avail = {k: v for k, v in comps.items() if v is not None}
     wsum = sum(weights[k] for k in avail)
     total = round(sum(weights[k] * v for k, v in avail.items()) / wsum, 1) if wsum else 0.0
+    if comps["backtest"] is None:
+        total = min(total, PROVISIONAL_CAP)
+    elif best["expectancy_r"] <= 0:
+        total = min(total, LOSING_CAP)
 
     checks = {}
     if best:

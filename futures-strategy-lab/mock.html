@@ -448,7 +448,8 @@ footer.method li { margin-bottom: 4px; }
           <li><b>Backtest</b> rewards positive expectancy (R per trade) and profit factor on the best symbol. <b>Robustness</b> checks that out-of-sample expectancy stays positive, that win rate is stable between in-sample and out-of-sample, and that the concept works on both MNQ and MGC.</li>
           <li><b>Fit</b> = how closely the concept matches your playbook (liquidity sweep + rejection block + FVG). <b>Credibility</b> = evidence the source is a practising professional, minus guru red flags. <b>Ease</b> = how mechanical and simple the rules are.</li>
           <li>Total = Σ(weight × component) / Σ(weights of available components). Grades: A ≥ 80, B ≥ 65, C ≥ 50, D ≥ 35, otherwise F.</li>
-          <li><b>Provisional</b> scores have no backtest yet; they rely only on fit, credibility and ease and should not be compared 1:1 with tested ones.</li>
+          <li><b>Provisional</b> scores (fewer than 10 trades) rely only on fit, credibility and ease and are capped at 45 (grade D at best), so an untested idea can never outrank a tested one.</li>
+          <li>Tested concepts with zero or negative expectancy on their best instrument are capped at 40, so they always rank below untested ideas.</li>
         </ul>
         <h3>Data caveats</h3>
         <ul>
@@ -601,6 +602,7 @@ footer.method li { margin-bottom: 4px; }
       robustness: null
     };
   }
+  var PROVISIONAL_CAP = 45, LOSING_CAP = 40;
   function scoreFor(c) {
     var comp = componentsFor(c), sw = 0, s = 0;
     COMPONENTS.forEach(function (k) {
@@ -610,6 +612,10 @@ footer.method li { margin-bottom: 4px; }
     var total = sw > 0 ? s / sw : null;
     var sc = D.scores && D.scores[c.id];
     var provisional = !resultsFor(c.id) || !sc || !!sc.provisional || !isNum(comp.backtest);
+    // Untested (< 10 trades) concepts can't outrank tested ones on opinion alone.
+    if (provisional && total !== null) total = Math.min(total, PROVISIONAL_CAP);
+    // A tested strategy that loses money on its best instrument can't outrank an untested idea.
+    else if (total !== null && sc && sc.goal_checks && sc.goal_checks.expectancy && !sc.goal_checks.expectancy.pass) total = Math.min(total, LOSING_CAP);
     return { total: total, grade: gradeOf(total), provisional: provisional, comp: comp };
   }
   function goalChecks(m) {
@@ -761,7 +767,7 @@ footer.method li { margin-bottom: 4px; }
           '<span class="who">' + esc(c.source ? c.source.trader : '') + '</span></div></td>' +
         '<td><div class="score-cell"><span class="score-num">' + scoreTxt + '</span><span class="grade ' + sc.grade + '">' + sc.grade + '</span>' +
           '<span class="bar" aria-hidden="true"><i style="width:' + (isNum(sc.total) ? Math.max(0, Math.min(100, sc.total)) : 0) + '%"></i></span>' +
-          (sc.provisional ? '<span class="prov" title="No backtest yet — score uses fit, credibility and ease only">prov.</span>' : '') + '</div></td>' +
+          (sc.provisional ? '<span class="prov" title="No backtest yet — fewer than 10 trades, score uses fit, credibility and ease only and is capped at 45">prov.</span>' : '') + '</div></td>' +
         (m ? (
           '<td class="num mono">' + fmtPct(m.win_rate) + '</td>' +
           '<td class="num mono">' + fmtNum(m.payoff_ratio) + '</td>' +
@@ -1037,7 +1043,7 @@ footer.method li { margin-bottom: 4px; }
       (yt ? '<p style="margin:10px 0 0"><a href="' + esc(yt) + '" target="_blank" rel="noopener noreferrer">Search on YouTube ↗</a></p>' : '') + '</div>';
 
     if (!res || !Object.keys(res).length) {
-      h += '<div class="card"><h3>Backtest</h3><p class="na">Not backtested yet. The score above is provisional (fit, credibility, ease only).</p></div>';
+      h += '<div class="card"><h3>Backtest</h3><p class="na">Not backtested yet. The score above is provisional (fit, credibility, ease only; capped at 45).</p></div>';
     } else {
       var syms = Object.keys(res);
       if (!res[state.drawerSym]) state.drawerSym = syms[0];

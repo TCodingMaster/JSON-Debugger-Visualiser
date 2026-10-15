@@ -81,7 +81,8 @@ Weighted average of five components; you can change the weights live in mock.htm
 * **Ease (15)**: how mechanical and simple the rules are.
 * **Robustness (10)**: out-of-sample expectancy, in-sample vs out-of-sample win-rate stability, and results on both instruments.
 
-Fewer than 10 trades → the score is *provisional* (qualitative components only).
+Fewer than 10 trades → the score is *provisional*: qualitative components only, capped at 45 so an untested idea never outranks a tested one.
+Tested concepts that lose money (expectancy ≤ 0 on their best instrument) are capped at 40.
 
 ## How the backtester avoids lying to you
 
