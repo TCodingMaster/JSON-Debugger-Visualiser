@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "selection_criteria": {
+    "include": [
+      "Trades futures (index / metals / rates) with a public, checkable track record: audited competition results (e.g. Robbins World Cup), regulated prop/CTA history, published books with testable rules, or long-running live-trading content",
+      "Concept can be written as objective rules (entry, stop, target) that a computer can test",
+      "Teaches process and risk, not lifestyle"
+    ],
+    "exclude_red_flags": [
+      "Income/lifestyle marketing (cars, '$10k/day', 'quit your job')",
+      "Signals or copy-trading groups as the main product",
+      "No verifiable record, only screenshots",
+      "Win-rate claims of 80-100%",
+      "Rules that change after the fact ('it was a valid setup in hindsight')"
+    ],
+    "note": "Credentials below were checked against public secondary sources where possible; items marked (unverified) could not be confirmed from a primary source. Mechanizations are this lab's interpretation, not the trader's exact method."
+  },
+  "concepts": [
+    {
+      "id": "lsrb_fvg",
+      "name": "Liquidity Sweep + Rejection Block + FVG",
+      "short": "Your playbook: stop-run of a liquidity pool, rejection wick, enter the displacement FVG at 50%.",
+      "source": {
+        "trader": "Your plan (ICT-style terminology; order-flow scalpers such as Fabio Valentini describe the same liquidity-grab idea)",
+        "channel": "Concept family — ICT vocabulary, mechanized here",
+        "youtube_search": "https://www.youtube.com/results?search_query=liquidity+sweep+fair+value+gap+nasdaq+futures+backtest",
+        "credibility_evidence": [
+          "Liquidity-grab / failed-auction reversals are a long-standing idea in auction-market and order-flow trading",
+          "Rules here are fully objective, so the result is a test of the idea, not of any personality"
+        ],
+        "guru_flags": [
+          "The FVG / 'rejection block' vocabulary comes from ICT, whose results are not audited",
+          "Most YouTube content on it is discretionary and judged in hindsight"
+        ],
+        "credibility_score": 5
+      },
+      "summary": "Mark resting liquidity (swing highs/lows, prior-day high/low, overnight high/low). Wait for a bar to trade through a pool and close back inside with a long rejection wick (the rejection block). Then require a displacement fair value gap in the reversal direction and enter on the retrace into the FVG. Stop beyond the sweep extreme, target fixed 2R.",
+      "rules": {
+        "context": "NY AM 09:30-11:30 ET. Pools: 3-bar pivots (≤300 bars old), prior RTH day high/low (if not already run overnight), overnight high/low.",
+        "entry": "Sweep bar closes back inside the pool with wick ≥ 40% of its range. Within 10 bars a 3-candle FVG forms in the reversal direction (size ≥ 0.1×ATR). Limit order at the FVG midpoint (CE).",
+        "stop": "2 ticks beyond the sweep extreme.",
+        "target": "Fixed 2R.",
+        "management": "None (set and forget). Optional break-even at 1R via --be.",
+        "filters": "FVG respected: cancel if a bar closes through the FVG's far edge. Order expires after 20 bars. Max 2 trades/day; flat by 15:55 ET; skip stops > 3×ATR."
+      },
+      "tags": ["liquidity_sweep", "rejection_block", "fvg", "mean_reversion"],
+      "playbook_fit": 10,
+      "mechanizability": 4,
+      "complexity": 4,
+      "timeframes": ["1m", "3m", "5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "The benchmark the other concepts are compared to."
+    },
+    {
+      "id": "turtle_soup",
+      "name": "Turtle Soup (false breakout of a 20-bar extreme)",
+      "short": "Fade a fresh 20-bar high/low that fails — the original codified liquidity sweep.",
+      "source": {
+        "trader": "Linda Bradford Raschke",
+        "channel": "Interviews / talks on YouTube (e.g. Chat With Traders, Complete Traders Edge 'Greatest Traders' episode)",
+        "youtube_search": "https://www.youtube.com/results?search_query=Linda+Raschke+turtle+soup",
+        "credibility_evidence": [
+          "Profiled in Jack Schwager's 'The New Market Wizards' (1992)",
+          "Co-authored 'Street Smarts' (1995) with Laurence Connors, where Turtle Soup is published with exact rules",
+          "Decades as a professional futures trader / CTA"
+        ],
+        "guru_flags": [],
+        "credibility_score": 9
+      },
+      "summary": "When price makes a new 20-bar low but the previous 20-bar low is at least 4 bars old, buy back above the old low; mirror for shorts. It's a liquidity sweep defined purely mechanically, without FVG confirmation.",
+      "rules": {
+        "context": "NY AM 09:30-11:30 ET, intraday adaptation of the daily original.",
+        "entry": "Bar breaks the prior 20-bar low (that low ≥4 bars old) → buy-stop 1 tick above the old low, valid 3 bars.",
+        "stop": "2 ticks below the new low.",
+        "target": "Fixed 2R (the original trails; your plan fixes 2R).",
+        "management": "None.",
+        "filters": "Cancel if the stop trades before the fill."
+      },
+      "tags": ["liquidity_sweep", "failed_breakout", "mean_reversion"],
+      "playbook_fit": 8,
+      "mechanizability": 5,
+      "complexity": 1,
+      "timeframes": ["5m", "15m", "1D"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "Strong control for your playbook: if Turtle Soup matches LSRB-FVG, the FVG/rejection filters add little."
+    },
+    {
+      "id": "oops_reclaim",
+      "name": "\"Oops\" — open outside yesterday's range, reclaim",
+      "short": "RTH opens beyond the prior day's high/low and trades back inside: trapped gap traders.",
+      "source": {
+        "trader": "Larry Williams",
+        "channel": "Interviews & seminars on YouTube",
+        "youtube_search": "https://www.youtube.com/results?search_query=Larry+Williams+oops+pattern",
+        "credibility_evidence": [
+          "Won the 1987 Robbins World Cup Championship of Futures Trading (widely reported +11,000%)",
+          "Pattern published in his books with explicit rules"
+        ],
+        "guru_flags": ["Sells courses and newsletters (author-educator, but the record predates it)"],
+        "credibility_score": 8
+      },
+      "summary": "If the RTH session opens below the prior day's low and then trades back above it, buy (mirror for shorts). Stop under the session low so far.",
+      "rules": {
+        "context": "09:30-11:00 ET, one signal per day.",
+        "entry": "Open < PDL and a 5m bar closes back above PDL → market entry next bar.",
+        "stop": "2 ticks beyond the RTH low (high) so far.",
+        "target": "Fixed 2R.",
+        "management": "None.",
+        "filters": "Only on gap-outside-range days, so it trades rarely."
+      },
+      "tags": ["liquidity_sweep", "failed_breakout", "gap"],
+      "playbook_fit": 7,
+      "mechanizability": 5,
+      "complexity": 1,
+      "timeframes": ["5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "Low frequency: needs a long history for a meaningful sample."
+    },
+    {
+      "id": "orb_failure",
+      "name": "Opening-range breakout failure",
+      "short": "First 15-minute range breaks, then fails: fade the trapped breakout traders.",
+      "source": {
+        "trader": "Al Brooks (failed breakouts) / Toby Crabel (opening range)",
+        "channel": "Brooks Trading Course (YouTube)",
+        "youtube_search": "https://www.youtube.com/results?search_query=Al+Brooks+failed+breakout+opening+range",
+        "credibility_evidence": [
+          "Al Brooks: long-time E-mini day trader, author of the Wiley price-action trilogy",
+          "Toby Crabel: 'Day Trading with Short Term Price Patterns and Opening Range Breakout' (1990), later ran a fund"
+        ],
+        "guru_flags": ["Brooks sells a course; his record is not publicly audited"],
+        "credibility_score": 7
+      },
+      "summary": "Mark the 09:30-09:45 range. If a bar trades beyond it and closes back inside, enter in the opposite direction; stop beyond the session extreme.",
+      "rules": {
+        "context": "09:45-11:30 ET, first failure of the day only.",
+        "entry": "Bar high > OR high and close < OR high → short at market next bar (mirror for long).",
+        "stop": "2 ticks beyond the RTH high/low so far.",
+        "target": "Fixed 2R.",
+        "management": "None.",
+        "filters": "One signal per day."
+      },
+      "tags": ["liquidity_sweep", "failed_breakout", "opening_range"],
+      "playbook_fit": 7,
+      "mechanizability": 5,
+      "complexity": 1,
+      "timeframes": ["5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": ""
+    },
+    {
+      "id": "session_sweep",
+      "name": "Session-liquidity sweep & reclaim (Asia / London / overnight)",
+      "short": "NY open runs the Asia, London or overnight extreme and rejects it.",
+      "source": {
+        "trader": "Fabio Valentini (NQ order-flow scalper) and similar session-liquidity traders",
+        "channel": "Podcast and interview appearances on YouTube",
+        "youtube_search": "https://www.youtube.com/results?search_query=Fabio+Valentini+nasdaq+scalping+liquidity",
+        "credibility_evidence": [
+          "Reported multiple top placings in the Robbins World Cup (exact figures vary by source — unverified)",
+          "Trades NQ in the NY session with auction-market / order-flow tools"
+        ],
+        "guru_flags": [
+          "Co-founder of an order-flow software product (commercial interest)",
+          "His real edge is read from order flow (footprint, CVD), which OHLC bars can't fully capture"
+        ],
+        "credibility_score": 7
+      },
+      "summary": "Pre-mark the Asia (20:00-24:00 ET), London (02:00-05:00 ET) and full overnight highs/lows. In the NY AM, when a bar runs one of them and closes back inside with a rejection wick, take the reversal.",
+      "rules": {
+        "context": "09:30-11:30 ET.",
+        "entry": "Bar trades through a session extreme, closes back inside, wick ≥ 40% of range → market entry next bar.",
+        "stop": "2 ticks beyond the sweep bar extreme.",
+        "target": "Fixed 2R.",
+        "management": "None.",
+        "filters": "Each level can be used once per day; a level broken without rejection is spent."
+      },
+      "tags": ["liquidity_sweep", "rejection_block", "session_levels"],
+      "playbook_fit": 9,
+      "mechanizability": 5,
+      "complexity": 2,
+      "timeframes": ["1m", "5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "Your playbook without the FVG step — shows whether the FVG improves the entry."
+    },
+    {
+      "id": "irb_trend",
+      "name": "Inventory Retracement Bar (IRB)",
+      "short": "Trend continuation off a bar with a ≥45% counter-trend wick.",
+      "source": {
+        "trader": "Rob Hoffman",
+        "channel": "Become A Better Trader (YouTube)",
+        "youtube_search": "https://www.youtube.com/results?search_query=Rob+Hoffman+inventory+retracement+bar",
+        "credibility_evidence": [
+          "Cited with 30+ real-money trading competition wins (count varies by source and year)",
+          "Featured in Technical Analysis of Stocks & Commodities (V.34:08)"
+        ],
+        "guru_flags": ["Sells courses / indicators"],
+        "credibility_score": 6
+      },
+      "summary": "In a trend (20 EMA sloping strongly), find a bar that retraces ≥45% of its range against the trend (institutional inventory being worked). Buy a break of its high; stop under its low.",
+      "rules": {
+        "context": "09:45-15:00 ET; 20 EMA slope over 5 bars ≥ 0.15 ATR/bar; bar entirely on the trend side of the EMA.",
+        "entry": "Buy-stop 1 tick above the IRB high (sell-stop below for shorts), valid 5 bars.",
+        "stop": "1 tick beyond the IRB's other extreme.",
+        "target": "Fixed 2R.",
+        "management": "None.",
+        "filters": "Cancel if the stop trades before the fill."
+      },
+      "tags": ["trend", "pullback"],
+      "playbook_fit": 2,
+      "mechanizability": 5,
+      "complexity": 2,
+      "timeframes": ["5m", "15m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "Opposite logic to your playbook (continuation, not reversal), a useful diversifier."
+    },
+    {
+      "id": "va_rejection",
+      "name": "Value-area re-entry (Market Profile 80% rule)",
+      "short": "Open outside yesterday's value, get accepted back inside → rotate through value.",
+      "source": {
+        "trader": "James Dalton (Market Profile); taught on YouTube by auction-market traders such as Tom Dante",
+        "channel": "Interviews / webinars on YouTube",
+        "youtube_search": "https://www.youtube.com/results?search_query=Jim+Dalton+market+profile+80+percent+rule",
+        "credibility_evidence": [
+          "Dalton co-authored 'Mind Over Markets' and 'Markets in Profile', the standard Market Profile texts",
+          "Auction-market theory is used on professional futures desks"
+        ],
+        "guru_flags": ["The '80%' figure is folklore, not a measured statistic: test it"],
+        "credibility_score": 8
+      },
+      "summary": "Build yesterday's RTH volume profile (70% value area). If today opens outside value and price closes back inside value for 30 minutes, trade toward the far side of value.",
+      "rules": {
+        "context": "09:30-13:00 ET.",
+        "entry": "RTH open above VAH (below VAL) and 30 consecutive minutes of closes inside value → market entry toward the opposite side.",
+        "stop": "2 ticks beyond the RTH extreme so far.",
+        "target": "Fixed 2R (classic target is the opposite VA edge).",
+        "management": "None.",
+        "filters": "One signal per day. Value area here is approximated from OHLCV bars (no tick data)."
+      },
+      "tags": ["volume_profile", "mean_reversion", "failed_breakout"],
+      "playbook_fit": 5,
+      "mechanizability": 4,
+      "complexity": 3,
+      "timeframes": ["5m", "30m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": "Low frequency."
+    },
+    {
+      "id": "vwap_band_sweep",
+      "name": "VWAP ±2σ band sweep & reclaim",
+      "short": "Day high/low runs outside the 2σ VWAP band, then closes back inside.",
+      "source": {
+        "trader": "Auction / order-flow prop desks (e.g. Axia Futures free webinars); loose attribution",
+        "channel": "Axia Futures (YouTube)",
+        "youtube_search": "https://www.youtube.com/results?search_query=Axia+Futures+VWAP+order+flow",
+        "credibility_evidence": [
+          "Axia operates an FCA-regulated proprietary trading arm in London",
+          "VWAP is the standard institutional execution benchmark"
+        ],
+        "guru_flags": [
+          "Axia sells courses",
+          "This exact rule set is our mechanization, not a published Axia strategy"
+        ],
+        "credibility_score": 6
+      },
+      "summary": "Session VWAP with volume-weighted standard-deviation bands. When a bar makes a new session low below the -2σ band and closes back above the band, buy; mirror for shorts.",
+      "rules": {
+        "context": "10:00-15:00 ET.",
+        "entry": "New RTH low, low < VWAP-2σ, close > VWAP-2σ → market entry next bar.",
+        "stop": "2 ticks beyond the sweep bar.",
+        "target": "Fixed 2R.",
+        "management": "None.",
+        "filters": "Max 2 trades/day."
+      },
+      "tags": ["liquidity_sweep", "vwap", "mean_reversion"],
+      "playbook_fit": 7,
+      "mechanizability": 5,
+      "complexity": 2,
+      "timeframes": ["5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": ""
+    },
+    {
+      "id": "brooks_h2l2",
+      "name": "Al Brooks H2 / L2 second entry",
+      "short": "With-trend pullback to the 20 EMA; take the second attempt to resume.",
+      "source": {
+        "trader": "Al Brooks",
+        "channel": "Brooks Trading Course (YouTube)",
+        "youtube_search": "https://www.youtube.com/results?search_query=Al+Brooks+high+2+bull+flag",
+        "credibility_evidence": [
+          "Decades of E-mini day trading; author of the Wiley price-action trilogy",
+          "Publishes daily E-mini chart analysis"
+        ],
+        "guru_flags": ["Sells a course; record not publicly audited", "Highly discretionary: the mechanized version is a simplification"],
+        "credibility_score": 7
+      },
+      "summary": "In a trend (price above a rising 20 EMA), count pullback legs. The second time a bar trades above the prior bar's high (H2) after the pullback touched the EMA, buy above a strong bull signal bar. L2 is the mirror.",
+      "rules": {
+        "context": "09:45-15:00 ET.",
+        "entry": "H2 signal bar (bull close in the top 40%) → buy-stop 1 tick above, valid 1 bar.",
+        "stop": "1 tick beyond the signal bar.",
+        "target": "Fixed 2R (Brooks often scalps 1R; your plan fixes 2R).",
+        "management": "None.",
+        "filters": "Pullback must touch within 0.25 ATR of the EMA; resets on a new trend extreme."
+      },
+      "tags": ["trend", "pullback"],
+      "playbook_fit": 2,
+      "mechanizability": 3,
+      "complexity": 3,
+      "timeframes": ["5m"],
+      "markets": ["MNQ", "MGC"],
+      "notes": ""
+    }
+  ]
+}
