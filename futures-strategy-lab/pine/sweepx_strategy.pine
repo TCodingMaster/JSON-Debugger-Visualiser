@@ -11,28 +11,29 @@
 //     sweep high → bullish FVG (v nogi do sweepa ali po njem) → displacement
 //     sveča zapre POD FVG = IFVG → (MSS: zaprtje pod zadnjim swing low) →
 //     cena se vrne v IFVG in medvedja sveča zapre pod njim (rejection) →
-//     market vstop, SL nad vrhom IFVG, TP 1.5R. Zaprtje nad IFVG = disrespect
+//     market vstop, SL nad vrhom IFVG, TP rr. Zaprtje nad IFVG = disrespect
 //     → ta IFVG odpade, čaka se na novega.
 //   CONTINUATION (npr. sweep low v padanju → short):
 //     sweep low → bearish FVG → cena se vrne v FVG in ga spoštuje (ne zapre
 //     nad njim) → displacement sveča zapre pod FVG + BOS → še ena sveča zapre
-//     izven FVG (potrditev) → vstop na naslednjem baru, SL nad FVG, TP 1.5R.
-//   Timeframe 3–5 min. Max 2 trade-a na dan. Vse zaprto do 15:55 NY.
+//     izven FVG (potrditev) → vstop na naslednjem baru, SL nad FVG, TP rr.
+//   Dokument: 3–5 min; ta verzija je nastavljena za 15 min. Max 2 trade-a na dan. Vse zaprto do 15:55 NY.
 //
-// Python backtest (Yahoo, 3m: 18. 9.–15. 10. 2026, 5m: 6. 8.–15. 10. 2026,
-// s stroški, privzete nastavitve = dobesedno po dokumentu):
-//   MNQ 3m: 32 trade-ov, 56 % WR, +0.37R   (nevideni del 11 tr., 45 %, +0.11R)
-//   MNQ 5m: 77 trade-ov, 43 % WR, +0.03R   (nevideni del 30 tr., 50 %, +0.16R)
-//   MGC 3m / 5m: 38–41 % WR, −0.04 do −0.13R
-//   Skupaj: 193 trade-ov, 44 % WR, +0.04R → mehanizirano ni dokazanega edge-a.
-//   Iskanje 480 kombinacij filtrov na in-sample ni dalo nastavitve, ki bi
-//   zdržala na nevidenih podatkih (rangiranje in-sample ni napovedalo OOS).
-// Za primerjavo: FVG Pro Kvaliteta na MNQ 15m = 68 % WR, +0.68R.
-//
+// PRIVZETE NASTAVITVE = 15m preset (lab/sweepx.py PRESET_15M), izbran na
+// in-sample delu: oba modela, brez HTF bias / MSS zahteve, samo v smeri
+// EMA 200 (cena nad EMA → samo long, pod → samo short), TP 2R.
+// Python backtest 15m (Yahoo, 6. 8.–15. 10. 2026, s stroški, 2R):
+//   MNQ 15m: 72 trade-ov, 42 % WR, +0.20R, +$4.007, max DD $1.362
+//            (in-sample 40 % / +0.12R, nevideni del 24 tr. 46 % / +0.36R)
+//   MGC 15m: 80 trade-ov, 45 % WR, +0.20R, +$1.596
+//   Brez EMA filtra: 39 % WR, +0.09R. Dobesedno po dokumentu na 15m: 35 %, −0.04R.
+//   Testirane EMA: 9, 20, 21, 34, 50, 100, 200 (cena / naklon / oboje) in
+//   križi 9/21, 9/50, 20/50, 21/100, 50/200 → EMA 200 najbolj stabilna.
+// Pri 2R je break-even WR 33 %; 60 % WR pri 2:1 NI dosežen.
 // Preverjena je sintaksa; ujemanje trade za trade s Pythonom NI preverjeno.
 // Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("sweepX — sweep + FVG/IFVG (1.5R)", shorttitle = "sweepX", overlay = true, pyramiding = 0,
+strategy("sweepX 15m — sweep + FVG/IFVG + EMA200 (2R)", shorttitle = "sweepX", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false, max_bars_back = 500,
@@ -40,21 +41,27 @@ strategy("sweepX — sweep + FVG/IFVG (1.5R)", shorttitle = "sweepX", overlay = 
 
 G1 = "Model"
 model     = input.string("Oba", "Model", options = ["Oba", "Reversal (IFVG)", "Continuation (FVG)"], group = G1)
-biasMode  = input.string("1h + 4h", "HTF bias", options = ["1h + 4h", "1h", "4h", "Izklopljen"], group = G1)
+biasMode  = input.string("Izklopljen", "HTF bias", options = ["1h + 4h", "1h", "4h", "Izklopljen"], group = G1)
 biasPiv   = input.int(2, "HTF pivot (bari)", minval = 1, group = G1)
 pivotLen  = input.int(3, "Pivot na grafu (bari)", minval = 1, group = G1)
 minFvgAtr = input.float(0.10, "Min FVG velikost (× ATR)", minval = 0, step = 0.05, group = G1)
 dispAtr   = input.float(0.5, "Displacement: telo sveče ≥ N × ATR", minval = 0, step = 0.1, group = G1)
-needMss   = input.bool(true, "Reversal: zahtevaj MSS/CHoCH", group = G1)
+needMss   = input.bool(false, "Reversal: zahtevaj MSS/CHoCH", group = G1)
 needBos   = input.bool(true, "Continuation: zahtevaj BOS", group = G1)
 aplusOnly = input.bool(false, "Samo A+ (sweep PDH/PDL)", group = G1)
 preBars   = input.int(10, "FVG lahko nastane do N barov pred sweepom", minval = 0, group = G1)
 sweepAge  = input.int(30, "Sweep velja N barov", minval = 1, group = G1)
 zoneAge   = input.int(30, "FVG/IFVG velja N barov", minval = 1, group = G1)
 
+GE = "EMA trend filter (samo v smeri trenda)"
+emaLen  = input.int(200, "EMA dolžina (0 = izklop)", minval = 0, group = GE)
+emaRule = input.string("Cena nad/pod EMA", "Pravilo", options = ["Cena nad/pod EMA", "Naklon EMA", "Cena + naklon", "Križ hitre/počasne"], group = GE)
+emaFast = input.int(50, "Hitra EMA (za križ)", minval = 1, group = GE)
+showEma = input.bool(true, "Pokaži EMA", group = GE)
+
 G2 = "Tveganje"
 bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
-rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
 beR        = input.float(0.0, "Trail: SL na break-even pri N R (0 = izklop)", minval = 0, step = 0.25, group = G2)
 minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
 maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
@@ -132,7 +139,13 @@ htfBias(int p) =>
 b1h = request.security(syminfo.tickerid, "60", htfBias(biasPiv)[1], lookahead = barmerge.lookahead_on)
 b4h = request.security(syminfo.tickerid, "240", htfBias(biasPiv)[1], lookahead = barmerge.lookahead_on)
 int bias = biasMode == "1h" ? b1h : biasMode == "4h" ? b4h : biasMode == "1h + 4h" ? (b1h == b4h ? b1h : 0) : 99
-allowed(int side) => bias == 99 or bias == side
+// EMA trend (same as lab/sweepx.py ema_trend)
+emaS = ta.ema(close, math.max(emaLen, 1))
+emaF = ta.ema(close, emaFast)
+emaSlope = math.sign(emaS - emaS[3])
+int trend = emaLen == 0 ? 99 : emaRule == "Cena nad/pod EMA" ? (close > emaS ? 1 : close < emaS ? -1 : 0) : emaRule == "Naklon EMA" ? int(emaSlope) : emaRule == "Cena + naklon" ? (close > emaS and emaSlope > 0 ? 1 : close < emaS and emaSlope < 0 ? -1 : 0) : (emaF > emaS ? 1 : emaF < emaS ? -1 : 0)
+plot(showEma and emaLen > 0 ? emaS : na, "EMA", color = color.new(color.yellow, 20), linewidth = 2)
+allowed(int side) => (bias == 99 or bias == side) and (trend == 99 or trend == side)
 
 // ── Session levels (known only after each session ends) ─────────────────────
 var float rthH = na
@@ -494,4 +507,4 @@ if showTable and barstate.islast
     table.cell(tb, 0, 6, "Simbol", text_color = color.white)
     table.cell(tb, 1, 6, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog." : "✗ samo MNQ ali MGC!", text_color = allowedSym ? color.lime : color.red)
     table.cell(tb, 0, 7, "Backtest", text_color = color.white)
-    table.cell(tb, 1, 7, "MNQ 3m 56 % +0.37R · 5m 43 % +0.03R (malo podatkov)", text_color = color.white)
+    table.cell(tb, 1, 7, "15m 2R: MNQ 42 % +0.20R · MGC 45 % +0.20R", text_color = color.white)

@@ -68,8 +68,38 @@ DEFAULTS = dict(
     aplus_only=False,        # only PDH/PDL sweeps
     pre=10, sweep_age=30, zone_age=30,
     buffer_ticks=2, rr=1.5, be_at_r=0.0,
+    entry="close",           # reversal entry: "close" (rejection candle close, the doc) |
+                             # "limit" (resting limit at the IFVG edge once it forms) | "limit_ce" (IFVG midpoint)
+    stop_mode="zone",        # "zone" (beyond the FVG/IFVG, the doc) | "sweep" (beyond the sweep extreme)
     windows="all", flatten="15:55", max_trades=2,
+    # EMA trend filter on the chart timeframe (trade only with the trend; 0 = off)
+    ema_len=0,               # "price": close above/below EMA; "slope": EMA rising/falling over 3 bars;
+    ema_rule="price",        # "both": price and slope; "cross": ema_fast above/below ema_len
+    ema_fast=0,
 )
+
+
+def ema_trend(feat, p) -> np.ndarray | None:
+    """+1 up / -1 down / 0 per bar from the EMA rule, None when the filter is off."""
+    if not p["ema_len"]:
+        return None
+    e = features.ema(feat.c, p["ema_len"])
+    c = feat.c
+    up_p, dn_p = c > e, c < e
+    sl = np.zeros(feat.n)
+    sl[3:] = np.sign(e[3:] - e[:-3])
+    if p["ema_rule"] == "price":
+        return np.where(up_p, 1, np.where(dn_p, -1, 0))
+    if p["ema_rule"] == "slope":
+        return sl
+    if p["ema_rule"] == "both":
+        return np.where(up_p & (sl > 0), 1, np.where(dn_p & (sl < 0), -1, 0))
+    f = features.ema(c, p["ema_fast"])
+    return np.where(f > e, 1, np.where(f < e, -1, 0))
+
+# 15-minute preset (chosen on in-sample data, see results/sweepx/REPORT.md):
+# both models, no HTF-bias / MSS requirement, trade only with the 200 EMA, 2R.
+PRESET_15M = dict(model="both", bias="off", need_mss=False, ema_len=200, ema_rule="price", rr=2.0, windows="all")
 
 
 # --------------------------------------------------------------------------- #
@@ -139,11 +169,24 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
     use_rev = p["model"] in ("reversal", "both")
     use_con = p["model"] in ("continuation", "both")
 
+    trend = ema_trend(feat, p)
+
     def allowed(side, i):
-        return math.isnan(bias[i]) or bias[i] == side
+        return (math.isnan(bias[i]) or bias[i] == side) and (trend is None or trend[i] == side)
 
     def disp(i):
         return abs(c[i] - o[i]) >= p["disp_atr"] * a[i]
+
+    def mss_ok(side, s, i):
+        if not p["need_mss"]:
+            return True
+        seg = c[s["bar"]:i + 1]
+        return _ok(s["ref"]) and ((side < 0 and seg.min() < s["ref"]) or (side > 0 and seg.max() > s["ref"]))
+
+    def stop_for(side, bot, top, s, i):
+        if p["stop_mode"] == "sweep":
+            return h[s["bar"]:i + 1].max() + buf if side < 0 else l[s["bar"]:i + 1].min() - buf
+        return top + buf if side < 0 else bot - buf
 
     # pools: (level, is_aplus)
     highs: list[tuple] = []
@@ -209,6 +252,16 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                 if inverted:
                     if use_rev and s is not None and disp(i):
                         z.update(state="ifvg", inv=i, sweep=s)
+                        if p["entry"] != "close":
+                            side = -fs
+                            z["state"] = "dead"
+                            if not (mss_ok(side, s, i) and win[i] and allowed(side, i)):
+                                continue
+                            edge = (bot if side < 0 else top) if p["entry"] == "limit" else (bot + top) / 2
+                            stop = stop_for(side, bot, top, s, i)
+                            out.append(Setup(i, side, "limit", inst.round_price(edge), inst.round_price(stop),
+                                             rr=p["rr"], expiry=p["zone_age"], invalidate=top if side < 0 else bot,
+                                             note=f"reversal IFVG limit {bot:.2f}-{top:.2f}" + (" A+" if s["aplus"] else "")))
                     else:
                         z["state"] = "dead"
                     continue
@@ -234,7 +287,7 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                 if z["trig"] is not None and i == z["trig"] + 1:
                     stays = (side < 0 and c[i] < bot) or (side > 0 and c[i] > top)
                     if stays and win[i] and allowed(side, i):
-                        stop = top + buf if side < 0 else bot - buf
+                        stop = stop_for(side, bot, top, s, i)
                         out.append(Setup(i, side, "market", 0.0, stop, rr=p["rr"], expiry=1,
                                          note=f"continuation FVG {bot:.2f}-{top:.2f}"
                                               + (" A+" if s["aplus"] else "")))
@@ -253,13 +306,8 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                 retest = (side < 0 and h[i] >= bot) or (side > 0 and l[i] <= top)
                 reject = (side < 0 and c[i] < bot and c[i] < o[i]) or (side > 0 and c[i] > top and c[i] > o[i])
                 if retest and reject:
-                    mss = True
-                    if p["need_mss"]:
-                        ref = s["ref"]
-                        seg = c[s["bar"]:i + 1]
-                        mss = _ok(ref) and ((side < 0 and seg.min() < ref) or (side > 0 and seg.max() > ref))
-                    if mss and win[i] and allowed(side, i):
-                        stop = top + buf if side < 0 else bot - buf
+                    if mss_ok(side, s, i) and win[i] and allowed(side, i):
+                        stop = stop_for(side, bot, top, s, i)
                         out.append(Setup(i, side, "market", 0.0, stop, rr=p["rr"], expiry=1,
                                          note=f"reversal IFVG {bot:.2f}-{top:.2f}" + (" A+" if s["aplus"] else "")))
                         z["state"] = "dead"

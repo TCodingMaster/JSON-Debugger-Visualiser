@@ -30,3 +30,22 @@ configurations were positive OOS. No setting is recommended over the doc-literal
 Mechanized, sweepX is roughly break-even (≈ 40-55 % WR at 1.5R, ≈ 0R) on this sample —
 no edge that survives out-of-sample. Samples are small (3m only 4 weeks). Signals pass a
 truncation (look-ahead) test; the Pine port is syntax-checked only (no trade-by-trade parity).
+
+## 15-minute version + EMA trend filter, 2R (update)
+
+Grid of 2,496 filter combinations on 15m (MNQ+MGC, ranked by in-sample WR): the top in-sample
+configs (reversal, 4h bias, Asia+London, sweep stop) reached 62-65 % IS but only 38-45 % OOS — not used.
+
+EMA trend filter (trade only with the trend), 2R, tested on four base configs:
+EMA 9/20/21/34/50/100/200 × rule (price / slope / both) and crosses 9/21, 9/50, 20/50, 21/100, 50/200.
+EMA 200 (price above/below) was the most stable choice across bases, in-sample and out-of-sample.
+
+Preset `PRESET_15M` (both models, no HTF bias / MSS requirement, EMA 200 price, 2R, all sessions):
+
+| Set | Trades | WR | Exp. R | Net | Max DD | IS | OOS |
+|---|---|---|---|---|---|---|---|
+| MNQ 15m | 72 | 42 % | +0.20 | +$4,007 | $1,362 | 48 · 40 % · +0.12 | 24 · 46 % · +0.36 |
+| MGC 15m | 80 | 45 % | +0.20 | +$1,596 | $1,226 | 50 · 48 % · +0.30 | 30 · 40 % · +0.04 |
+
+Same without EMA: 39 % / +0.09R. Doc-literal on 15m at 2R: MNQ 35 % / −0.04R.
+Break-even WR at 2R is 33 %; 60 % WR at 2:1 is not reached. Sample is ~70 days.
