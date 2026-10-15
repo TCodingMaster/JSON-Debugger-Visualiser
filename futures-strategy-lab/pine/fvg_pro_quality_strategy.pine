@@ -69,7 +69,20 @@ showEma = input.bool(true, "Pokaži EMA", group = GE)
 G4 = "Display"
 showZones = input.bool(true, "Draw traded FVGs and order levels", group = G4)
 showTable = input.bool(true, "Stats table", group = G4)
+
+GH = "Avtomatsko trgovanje (webhook → TradersPost)"
+useHook    = input.bool(false, "Pošiljaj naročila prek alert() (webhook)", group = GH)
+hookTicker = input.string("", "Ticker za brokerja (prazno = simbol grafa, npr. MCLZ2026)", group = GH)
 goalWr    = input.float(60.0, "Goal: win rate %", group = G4)
+
+// ── Webhook messages (TradersPost JSON; sent only when useHook is on) ─────────
+hookSym() => hookTicker == "" ? syminfo.ticker : hookTicker
+px(float v) => str.tostring(v, format.mintick)
+hookEntry(int side, float entry, float st, float tgt, int q) =>
+    '{"ticker":"' + hookSym() + '","action":"' + (side > 0 ? "buy" : "sell") + '","orderType":"limit","limitPrice":' + px(entry) +
+     ',"quantity":' + str.tostring(q) + ',"stopLoss":{"type":"stop","stopPrice":' + px(st) + '},"takeProfit":{"limitPrice":' + px(tgt) + '}}'
+hookCancel() => '{"ticker":"' + hookSym() + '","action":"cancel"}'
+hookExit() => '{"ticker":"' + hookSym() + '","action":"exit"}'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 TZ = "America/New_York"
@@ -240,9 +253,13 @@ if pending and strategy.position_size == 0
     if (pendSide > 0 and close < pendInval) or (pendSide < 0 and close > pendInval)
         strategy.cancel_all()
         pending := false
+        if useHook
+            alert(hookCancel(), alert.freq_once_per_bar_close)
 
 // accept this bar's setups (newest replaces older pending order)
 nSet = array.size(setSide)
+bool hadPending = pending
+bool placed = false
 if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and inSess
     for i = 0 to nSet - 1
         int side  = array.get(setSide, i)
@@ -261,6 +278,7 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
             else
                 strategy.entry("FVG S", strategy.short, qty = qty, limit = entry)
                 strategy.exit("X S", "FVG S", stop = st, limit = tgt)
+            placed    := true
             pending   := true
             pendBar   := bar_index
             pendSide  := side
@@ -275,16 +293,26 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
                 line.new(bar_index, st, bar_index + 8, st, color = color.red, width = 1)
                 line.new(bar_index, tgt, bar_index + 8, tgt, color = color.blue, style = line.style_dashed, width = 1)
 
+// webhook: the order that is left working after this bar (a replaced one is cancelled first)
+if useHook and placed
+    if hadPending
+        alert(hookCancel(), alert.freq_once_per_bar_close)
+    alert(hookEntry(pendSide, pendEntry, pendStop, pendTgt, qty), alert.freq_once_per_bar_close)
+
 // expiry / next bar is a new day / next bar is past the flatten time → cancel before it trades
 nextNewDay  = gday(time_close) != curDay
 nextAfter   = afterFlat(modClose)
 if pending and strategy.position_size == 0 and (bar_index + 1 - pendBar > expiryBars or nextNewDay or nextAfter or dayTrades >= maxTrades)
     strategy.cancel_all()
     pending := false
+    if useHook
+        alert(hookCancel(), alert.freq_once_per_bar_close)
 
 // flat by the flatten time (fills at the next bar's open, like the Python engine)
 if strategy.position_size != 0 and (nextAfter or nextNewDay)
     strategy.close_all(comment = "EOD")
+    if useHook
+        alert(hookExit(), alert.freq_once_per_bar_close)
 
 plotshape(bosUp, "BOS up", shape.triangleup, location.belowbar, color.new(color.teal, 30), size = size.tiny)
 plotshape(bosDn, "BOS down", shape.triangledown, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
