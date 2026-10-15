@@ -76,6 +76,12 @@ DEFAULTS = dict(
     ema_len=0,               # "price": close above/below EMA; "slope": EMA rising/falling over 3 bars;
     ema_rule="price",        # "both": price and slope; "cross": ema_fast above/below ema_len
     ema_fast=0,
+    # liquidity source: "lab" (swings + PDH/PDL/session levels, swept when traded through) |
+    # "bigbeluga" (Liquidity Sweep Hunter [BigBeluga] logic: volume-filtered pivots,
+    # a sweep = wick through the level and close back; level removed once traded through)
+    liq="lab", bb_len=5, bb_filter=0.5,
+    # "luxalgo": Liquidity Sweeps [LuxAlgo] logic; lux_opt "wicks" | "retest" | "both"
+    lux_len=5, lux_opt="wicks",
 )
 
 
@@ -188,6 +194,84 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
             return h[s["bar"]:i + 1].max() + buf if side < 0 else l[s["bar"]:i + 1].min() - buf
         return top + buf if side < 0 else bot - buf
 
+    # Liquidity Sweep Hunter [BigBeluga] (CC BY-NC-SA 4.0, © BigBeluga), re-implemented:
+    # pivot low/high of `bb_len` bars each side whose bar had volume change
+    # (v - v[-1]) / v * 100 > bb_filter becomes a level (known bb_len bars later).
+    # Sweep: support with low < level and close > level (resistance mirrored).
+    # A level is removed when a bar's range contains it (high > level > low).
+    bb_lv: list[list] = []          # [price, is_support, aplus]
+    v = feat.v
+    with np.errstate(divide="ignore", invalid="ignore"):
+        vchg = np.where(v > 0, (v - np.r_[np.nan, v[:-1]]) / v * 100, np.nan)
+    BL = int(p["bb_len"])
+    near = lambda x, y: _ok(y) and abs(x - y) <= tick / 2  # noqa: E731
+
+    def bb_sweeps(i):
+        k = i - BL
+        if k - BL >= 0 and vchg[k] > p["bb_filter"]:
+            if l[k] < l[k - BL:k].min() and l[k] <= l[k + 1:i + 1].min():
+                bb_lv.append([l[k], True, near(l[k], feat.pdl[i])])
+            if h[k] > h[k - BL:k].max() and h[k] >= h[k + 1:i + 1].max():
+                bb_lv.append([h[k], False, near(h[k], feat.pdh[i])])
+        th, tl, keep = [], [], []
+        for lv in bb_lv:
+            price, sup, ap = lv
+            if sup and l[i] < price and c[i] > price:
+                tl.append((price, ap or near(price, feat.pdl[i])))
+            if not sup and h[i] > price and c[i] < price:
+                th.append((price, ap or near(price, feat.pdh[i])))
+            if not (h[i] > price and l[i] < price):
+                keep.append(lv)
+        bb_lv[:] = keep
+        return th, tl
+
+    # Liquidity Sweeps [LuxAlgo] (CC BY-NC-SA 4.0, © LuxAlgo), re-implemented.
+    # Pivots of `lux_len` bars each side. For a pivot high P (lows mirrored):
+    #   not broken: close > P -> broken (or removed in "wicks" mode);
+    #               wick sweep (high > P, close < P) once -> bearish event
+    #   broken:     close < P -> removed; retest (low < P, close > P) -> bullish event, removed
+    # Bearish events count as a swept HIGH (kind +1), bullish as a swept LOW (kind -1).
+    lux: list[dict] = []
+    LL = int(p["lux_len"])
+    only_w, only_o = p["lux_opt"] == "wicks", p["lux_opt"] == "retest"
+
+    def lux_sweeps(i):
+        k = i - LL
+        if k - LL >= 0:
+            if h[k] > h[k - LL:k].max() and h[k] >= h[k + 1:i + 1].max():
+                lux.append(dict(prc=h[k], hi=True, bix=k, brk=False, mit=False, tak=False, wic=False))
+            if l[k] < l[k - LL:k].min() and l[k] <= l[k + 1:i + 1].min():
+                lux.append(dict(prc=l[k], hi=False, bix=k, brk=False, mit=False, tak=False, wic=False))
+        th, tl = [], []
+        for g in lux:
+            P, d = g["prc"], (1 if g["hi"] else -1)   # d: +1 pivot high, -1 pivot low
+            beyond = (c[i] > P) if d > 0 else (c[i] < P)
+            back = (c[i] < P) if d > 0 else (c[i] > P)
+            if g["mit"]:
+                continue
+            if not g["brk"]:
+                if beyond:
+                    if not only_w:
+                        g["brk"] = True
+                    else:
+                        g["mit"] = True
+                if not only_o and not g["wic"]:
+                    poke = (h[i] > P) if d > 0 else (l[i] < P)
+                    if poke and back:
+                        ap = near(P, feat.pdh[i] if d > 0 else feat.pdl[i])
+                        (th if d > 0 else tl).append((P, ap))
+                        g["wic"] = True
+            else:
+                if back:
+                    g["mit"] = True
+                poke = (l[i] < P) if d > 0 else (h[i] > P)
+                if not only_w and poke and beyond:
+                    ap = near(P, feat.pdh[i] if d > 0 else feat.pdl[i])
+                    (tl if d > 0 else th).append((P, ap))
+                    g["tak"] = True
+        lux[:] = [g for g in lux if not (g["mit"] or g["tak"] or i - g["bix"] > 2000)]
+        return th, tl
+
     # pools: (level, is_aplus)
     highs: list[tuple] = []
     lows: list[tuple] = []
@@ -216,6 +300,10 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
         took_l = [x for x in lows if l[i] < x[0]]
         highs[:] = [x for x in highs if x[0] >= h[i]]
         lows[:] = [x for x in lows if x[0] <= l[i]]
+        if p["liq"] == "bigbeluga":
+            took_h, took_l = bb_sweeps(i)
+        elif p["liq"] == "luxalgo":
+            took_h, took_l = lux_sweeps(i)
         if took_h and (not p["aplus_only"] or any(ap for _, ap in took_h)):
             sweeps.append(dict(kind=1, bar=i, aplus=any(ap for _, ap in took_h), ref=lsl))
         if took_l and (not p["aplus_only"] or any(ap for _, ap in took_l)):

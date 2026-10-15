@@ -49,3 +49,18 @@ Preset `PRESET_15M` (both models, no HTF bias / MSS requirement, EMA 200 price, 
 
 Same without EMA: 39 % / +0.09R. Doc-literal on 15m at 2R: MNQ 35 % / −0.04R.
 Break-even WR at 2R is 33 %; 60 % WR at 2:1 is not reached. Sample is ~70 days.
+
+## Liquidity source: BigBeluga / LuxAlgo logic (15m preset, 2R)
+
+Re-implemented (CC BY-NC-SA 4.0 indicators, logic only) as `liq="bigbeluga"` / `liq="luxalgo"`.
+
+| Source | MNQ 15m | MGC 15m |
+|---|---|---|
+| Own (swings + PDH/PDL + sessions) | 72 · 42 % · +0.20R | 80 · 45 % · +0.20R |
+| BigBeluga len 5 (default) | 46 · 35 % · −0.03R | 53 · 49 % · +0.24R |
+| BigBeluga len 3 | 58 · 40 % · +0.13R | 63 · 46 % · +0.26R |
+| LuxAlgo len 5 wicks (default) | 59 · 36 % · +0.02R | 65 · 43 % · +0.13R |
+| LuxAlgo len 3 wicks + retest | 73 · 42 % · +0.22R | 81 · 43 % · +0.19R |
+| LuxAlgo len 5 retest | 46 · 41 % · +0.11R | 44 · 52 % · +0.50R |
+
+Neither improves MNQ beyond noise; default settings of both are worse than the own pools.
