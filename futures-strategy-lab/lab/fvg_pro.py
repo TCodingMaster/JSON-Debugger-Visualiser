@@ -149,6 +149,9 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                 stop = h[lo_i:k + 1].max() + buf
                 entry = bot if p["entry"] == "edge" else inst.round_price((bot + top) / 2)
                 inval = top
+            if p.get("stop_mode", "leg") == "fvg":
+                # tighter: just beyond the far edge of the gap
+                stop = (bot - buf) if side > 0 else (top + buf)
             out.append(Setup(t, side, "limit", entry, stop, rr=p["rr"], expiry=p["expiry"], invalidate=inval,
                              note=f"BOS {'up' if side > 0 else 'down'} + FVG {bot:.2f}-{top:.2f}"))
     return out
