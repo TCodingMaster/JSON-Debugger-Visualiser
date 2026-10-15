@@ -281,3 +281,20 @@ def test_research_run_and_judge_smoke():
     s = research.summarize(rows)
     assert len(rows) == 2 * len(research.WINDOWS) * len(research.CONTEXTS) * 2
     assert {"survivors", "random_survivors", "families"} <= set(s)
+
+
+def test_smc_no_lookahead():
+    from lab import smc
+    df = data.synthetic("MNQ", days=12, seed=11)
+    inst = data.get_instrument("MNQ")
+    f = features.build(df, inst.tick)
+    cut = f.n // 2
+    f2 = features.build(df.iloc[:cut], inst.tick)
+    c1, c2 = smc.Context(f), smc.Context(f2)
+    for lq in smc.LIQ_SOURCES:
+        for st in smc.STRUCTURES:
+            for en in smc.ENTRIES:
+                k = lambda s: (s.bar, s.side, round(s.entry, 4), round(s.stop, 4))  # noqa: E731
+                a = [k(s) for s in smc.generate(c1, inst, lq, st, en) if s.bar < cut - 1]
+                b = [k(s) for s in smc.generate(c2, inst, lq, st, en) if s.bar < cut - 1]
+                assert a == b, (lq, st, en)
