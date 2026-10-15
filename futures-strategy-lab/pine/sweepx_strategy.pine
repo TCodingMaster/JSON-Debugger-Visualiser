@@ -1,0 +1,497 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// sweepX — strategija iz dokumenta "sweepX" (liquidity sweep + FVG / IFVG)
+//
+// Ista logika kot futures-strategy-lab/lab/sweepx.py:
+//   HTF bias: smer zadnjega preboja strukture na 1h IN 4h (oba se morata
+//   strinjati; samo zaprti HTF bari → brez repaintanja).
+//   Likvidnost: swing high/low + PDH/PDL (A+), overnight, Asia, London H/L.
+//
+//   REVERSAL (npr. sweep PDH → short):
+//     sweep high → bullish FVG (v nogi do sweepa ali po njem) → displacement
+//     sveča zapre POD FVG = IFVG → (MSS: zaprtje pod zadnjim swing low) →
+//     cena se vrne v IFVG in medvedja sveča zapre pod njim (rejection) →
+//     market vstop, SL nad vrhom IFVG, TP 1.5R. Zaprtje nad IFVG = disrespect
+//     → ta IFVG odpade, čaka se na novega.
+//   CONTINUATION (npr. sweep low v padanju → short):
+//     sweep low → bearish FVG → cena se vrne v FVG in ga spoštuje (ne zapre
+//     nad njim) → displacement sveča zapre pod FVG + BOS → še ena sveča zapre
+//     izven FVG (potrditev) → vstop na naslednjem baru, SL nad FVG, TP 1.5R.
+//   Timeframe 3–5 min. Max 2 trade-a na dan. Vse zaprto do 15:55 NY.
+//
+// Python backtest (Yahoo, 3m: 18. 9.–15. 10. 2026, 5m: 6. 8.–15. 10. 2026,
+// s stroški, privzete nastavitve = dobesedno po dokumentu):
+//   MNQ 3m: 32 trade-ov, 56 % WR, +0.37R   (nevideni del 11 tr., 45 %, +0.11R)
+//   MNQ 5m: 77 trade-ov, 43 % WR, +0.03R   (nevideni del 30 tr., 50 %, +0.16R)
+//   MGC 3m / 5m: 38–41 % WR, −0.04 do −0.13R
+//   Skupaj: 193 trade-ov, 44 % WR, +0.04R → mehanizirano ni dokazanega edge-a.
+//   Iskanje 480 kombinacij filtrov na in-sample ni dalo nastavitve, ki bi
+//   zdržala na nevidenih podatkih (rangiranje in-sample ni napovedalo OOS).
+// Za primerjavo: FVG Pro Kvaliteta na MNQ 15m = 68 % WR, +0.68R.
+//
+// Preverjena je sintaksa; ujemanje trade za trade s Pythonom NI preverjeno.
+// Hipotetični rezultati, ni finančni nasvet.
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("sweepX — sweep + FVG/IFVG (1.5R)", shorttitle = "sweepX", overlay = true, pyramiding = 0,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false, max_bars_back = 500,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300)
+
+G1 = "Model"
+model     = input.string("Oba", "Model", options = ["Oba", "Reversal (IFVG)", "Continuation (FVG)"], group = G1)
+biasMode  = input.string("1h + 4h", "HTF bias", options = ["1h + 4h", "1h", "4h", "Izklopljen"], group = G1)
+biasPiv   = input.int(2, "HTF pivot (bari)", minval = 1, group = G1)
+pivotLen  = input.int(3, "Pivot na grafu (bari)", minval = 1, group = G1)
+minFvgAtr = input.float(0.10, "Min FVG velikost (× ATR)", minval = 0, step = 0.05, group = G1)
+dispAtr   = input.float(0.5, "Displacement: telo sveče ≥ N × ATR", minval = 0, step = 0.1, group = G1)
+needMss   = input.bool(true, "Reversal: zahtevaj MSS/CHoCH", group = G1)
+needBos   = input.bool(true, "Continuation: zahtevaj BOS", group = G1)
+aplusOnly = input.bool(false, "Samo A+ (sweep PDH/PDL)", group = G1)
+preBars   = input.int(10, "FVG lahko nastane do N barov pred sweepom", minval = 0, group = G1)
+sweepAge  = input.int(30, "Sweep velja N barov", minval = 1, group = G1)
+zoneAge   = input.int(30, "FVG/IFVG velja N barov", minval = 1, group = G1)
+
+G2 = "Tveganje"
+bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
+rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+beR        = input.float(0.0, "Trail: SL na break-even pri N R (0 = izklop)", minval = 0, step = 0.25, group = G2)
+minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
+maxTradesIn = input.int(2, "Max trade-ov na Globex dan", minval = 1, group = G2)
+qtyInput   = input.int(0, "Pogodbe (0 = auto: MNQ 2, MGC 1, drugo 1)", minval = 0, group = G2)
+
+G3 = "Seje (New York čas, HHMM-HHMM)"
+useS1  = input.bool(true, "Asia", inline = "s1", group = G3)
+sess1  = input.string("2000-0000", "", inline = "s1", group = G3)
+useS2  = input.bool(true, "London + NY", inline = "s2", group = G3)
+sess2  = input.string("0000-1530", "", inline = "s2", group = G3)
+useS3  = input.bool(false, "Dodatna", inline = "s3", group = G3)
+sess3  = input.string("0830-1200", "", inline = "s3", group = G3)
+flatHM = input.string("1555", "Zapri vse ob (HHMM, NY)", group = G3)
+
+G4 = "Prikaz"
+showZones = input.bool(true, "Pokaži FVG / IFVG", group = G4)
+showSweep = input.bool(true, "Označi sweepe", group = G4)
+showTable = input.bool(true, "Tabela", group = G4)
+
+G5 = "Moja pravila"
+ruleSymbols = input.bool(true, "1) Samo MNQ in MGC", group = G5)
+dailyCap    = input.int(2, "2) Dnevni limit trade-ov", minval = 1, group = G5)
+showMyHours = input.bool(true, "3) Osenči moje najboljše ure", group = G5)
+myHours     = input.string("0500-1200", "   Moje ure (New York čas = 11:00–18:00 v Sloveniji)", group = G5)
+maxTrades   = math.min(maxTradesIn, dailyCap)
+useRev = model != "Continuation (FVG)"
+useCon = model != "Reversal (IFVG)"
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+flatMin = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen  = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+allowedSym = syminfo.root == "MNQ" or syminfo.root == "MGC"
+inSess = ((useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))) and (not ruleSymbols or allowedSym)
+inMyHours = inWindow(myHours, modOpen)
+qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : 1
+tick = syminfo.mintick
+buf  = bufTicks * tick
+atr  = ta.atr(14)
+
+// ── HTF bias (last break of structure on completed HTF bars) ────────────────
+htfBias(int p) =>
+    var float sh = na
+    var float sl = na
+    var int b = 0
+    float hiPrev = ta.highest(high, p)[p + 1]
+    float hiNext = ta.highest(high, p)
+    float loPrev = ta.lowest(low, p)[p + 1]
+    float loNext = ta.lowest(low, p)
+    if bar_index >= 2 * p
+        if high[p] > hiPrev and high[p] >= hiNext
+            sh := high[p]
+        if low[p] < loPrev and low[p] <= loNext
+            sl := low[p]
+    if not na(sh) and close > sh
+        b := 1
+        sh := na
+    else if not na(sl) and close < sl
+        b := -1
+        sl := na
+    b
+b1h = request.security(syminfo.tickerid, "60", htfBias(biasPiv)[1], lookahead = barmerge.lookahead_on)
+b4h = request.security(syminfo.tickerid, "240", htfBias(biasPiv)[1], lookahead = barmerge.lookahead_on)
+int bias = biasMode == "1h" ? b1h : biasMode == "4h" ? b4h : biasMode == "1h + 4h" ? (b1h == b4h ? b1h : 0) : 99
+allowed(int side) => bias == 99 or bias == side
+
+// ── Session levels (known only after each session ends) ─────────────────────
+var float rthH = na
+var float rthL = na
+var float pdh = na
+var float pdl = na
+var float onH = na
+var float onL = na
+var float asH = na
+var float asL = na
+var float lnH = na
+var float lnL = na
+curDay = gday(time)
+newDay = curDay != gday(time[1])
+if newDay
+    if not na(rthH)
+        pdh := rthH
+        pdl := rthL
+    rthH := na
+    rthL := na
+    onH := na
+    onL := na
+    asH := na
+    asL := na
+    lnH := na
+    lnL := na
+bool isRth = modOpen >= 570 and modOpen < 960
+bool isOn  = not isRth and (modOpen >= 18 * 60 or modOpen < 570)
+if isRth
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+if isOn
+    onH := na(onH) ? high : math.max(onH, high)
+    onL := na(onL) ? low : math.min(onL, low)
+if modOpen >= 20 * 60
+    asH := na(asH) ? high : math.max(asH, high)
+    asL := na(asL) ? low : math.min(asL, low)
+if modOpen >= 120 and modOpen < 300
+    lnH := na(lnH) ? high : math.max(lnH, high)
+    lnL := na(lnL) ? low : math.min(lnL, low)
+bool onKnown = modOpen >= 570 and modOpen < 18 * 60
+bool asKnown = modOpen < 18 * 60
+bool lnKnown = modOpen >= 300 and modOpen < 18 * 60
+
+// ── Structure + liquidity pools ──────────────────────────────────────────────
+hiR = ta.highest(high, pivotLen)
+loR = ta.lowest(low, pivotLen)
+var float lsh = na
+var float lsl = na
+var array<float> highs  = array.new<float>()
+var array<bool>  highsA = array.new<bool>()
+var array<float> lows   = array.new<float>()
+var array<bool>  lowsA  = array.new<bool>()
+var array<float> usedLv = array.new<float>()
+if newDay
+    array.clear(usedLv)
+addOnce(array<float> arr, array<bool> arrA, float lv, bool ap) =>
+    if not na(lv) and not array.includes(usedLv, lv)
+        array.push(usedLv, lv)
+        array.push(arr, lv)
+        array.push(arrA, ap)
+if bar_index >= 2 * pivotLen
+    if high[pivotLen] > hiR[pivotLen + 1] and high[pivotLen] >= hiR
+        lsh := high[pivotLen]
+        array.push(highs, high[pivotLen])
+        array.push(highsA, false)
+    if low[pivotLen] < loR[pivotLen + 1] and low[pivotLen] <= loR
+        lsl := low[pivotLen]
+        array.push(lows, low[pivotLen])
+        array.push(lowsA, false)
+addOnce(highs, highsA, pdh, true)
+if onKnown
+    addOnce(highs, highsA, onH, false)
+if asKnown
+    addOnce(highs, highsA, asH, false)
+if lnKnown
+    addOnce(highs, highsA, lnH, false)
+addOnce(lows, lowsA, pdl, true)
+if onKnown
+    addOnce(lows, lowsA, onL, false)
+if asKnown
+    addOnce(lows, lowsA, asL, false)
+if lnKnown
+    addOnce(lows, lowsA, lnL, false)
+
+// pools traded through on this bar are swept
+bool tookH = false
+bool tookHA = false
+bool tookL = false
+bool tookLA = false
+if array.size(highs) > 0
+    for j = array.size(highs) - 1 to 0
+        if high > array.get(highs, j)
+            tookH := true
+            tookHA := tookHA or array.get(highsA, j)
+            array.remove(highs, j)
+            array.remove(highsA, j)
+if array.size(lows) > 0
+    for j = array.size(lows) - 1 to 0
+        if low < array.get(lows, j)
+            tookL := true
+            tookLA := tookLA or array.get(lowsA, j)
+            array.remove(lows, j)
+            array.remove(lowsA, j)
+if array.size(highs) > 300
+    array.shift(highs)
+    array.shift(highsA)
+if array.size(lows) > 300
+    array.shift(lows)
+    array.shift(lowsA)
+
+// live sweeps: kind +1 = high swept, -1 = low swept
+var array<int>   swKind = array.new<int>()
+var array<int>   swBar  = array.new<int>()
+var array<bool>  swA    = array.new<bool>()
+var array<float> swRef  = array.new<float>()
+if tookH and (not aplusOnly or tookHA)
+    array.push(swKind, 1)
+    array.push(swBar, bar_index)
+    array.push(swA, tookHA)
+    array.push(swRef, lsl)
+    if showSweep
+        label.new(bar_index, high, "sweep" + (tookHA ? " A+" : ""), style = label.style_label_down, color = color.new(color.orange, 60), textcolor = color.white, size = size.tiny)
+if tookL and (not aplusOnly or tookLA)
+    array.push(swKind, -1)
+    array.push(swBar, bar_index)
+    array.push(swA, tookLA)
+    array.push(swRef, lsh)
+    if showSweep
+        label.new(bar_index, low, "sweep" + (tookLA ? " A+" : ""), style = label.style_label_up, color = color.new(color.orange, 60), textcolor = color.white, size = size.tiny)
+while array.size(swBar) > 0 and bar_index - array.get(swBar, 0) > sweepAge
+    array.shift(swKind)
+    array.shift(swBar)
+    array.shift(swA)
+    array.shift(swRef)
+
+// ── FVG / IFVG zones ─────────────────────────────────────────────────────────
+// state: 0 = FVG, 1 = IFVG, 2 = dead
+var array<int>   zBorn  = array.new<int>()
+var array<int>   zSide  = array.new<int>()
+var array<float> zBot   = array.new<float>()
+var array<float> zTop   = array.new<float>()
+var array<int>   zState = array.new<int>()
+var array<bool>  zTouch = array.new<bool>()
+var array<int>   zTrig  = array.new<int>()
+var array<int>   zInv   = array.new<int>()
+var array<int>   zSBar  = array.new<int>()
+var array<float> zSRef  = array.new<float>()
+var array<bool>  zSA    = array.new<bool>()
+if bar_index >= 2
+    int fs = 0
+    float fb = na
+    float ft = na
+    if low > high[2] and low - high[2] >= minFvgAtr * atr
+        fs := 1
+        fb := high[2]
+        ft := low
+    else if high < low[2] and low[2] - high >= minFvgAtr * atr
+        fs := -1
+        fb := high
+        ft := low[2]
+    if fs != 0
+        array.push(zBorn, bar_index)
+        array.push(zSide, fs)
+        array.push(zBot, fb)
+        array.push(zTop, ft)
+        array.push(zState, 0)
+        array.push(zTouch, false)
+        array.push(zTrig, -1)
+        array.push(zInv, -1)
+        array.push(zSBar, -1)
+        array.push(zSRef, na)
+        array.push(zSA, false)
+        if showZones
+            box.new(bar_index - 2, ft, bar_index + 5, fb, border_color = na,
+                 bgcolor = fs > 0 ? color.new(color.teal, 85) : color.new(color.red, 85))
+
+bool isDisp = math.abs(close - open) >= dispAtr * atr
+int   sigSide = 0
+float sigStop = na
+string sigTxt = ""
+int nz = array.size(zBorn)
+if nz > 0
+    for j = 0 to nz - 1
+        int born = array.get(zBorn, j)
+        int st = array.get(zState, j)
+        if st == 2 or born == bar_index or bar_index - born > zoneAge + preBars
+            continue
+        int fs = array.get(zSide, j)
+        float bot = array.get(zBot, j)
+        float top = array.get(zTop, j)
+        // latest live sweep of the same direction this zone can serve
+        int si = -1
+        int nsw = array.size(swBar)
+        if nsw > 0
+            for q = nsw - 1 to 0
+                if array.get(swKind, q) == fs and born >= array.get(swBar, q) - preBars
+                    si := q
+                    break
+        if st == 0
+            bool inverted = (fs > 0 and close < bot) or (fs < 0 and close > top)
+            if inverted
+                if useRev and si >= 0 and isDisp
+                    array.set(zState, j, 1)
+                    array.set(zInv, j, bar_index)
+                    array.set(zSBar, j, array.get(swBar, si))
+                    array.set(zSRef, j, array.get(swRef, si))
+                    array.set(zSA, j, array.get(swA, si))
+                    if showZones
+                        box.new(bar_index, top, bar_index + 8, bot, border_color = color.purple,
+                             bgcolor = color.new(color.purple, 80), text = "IFVG", text_color = color.white, text_size = size.tiny)
+                else
+                    array.set(zState, j, 2)
+                continue
+            if not useCon or si < 0
+                continue
+            int side = fs
+            int sb = array.get(swBar, si)
+            if bar_index > sb
+                if (side < 0 and high >= bot) or (side > 0 and low <= top)
+                    array.set(zTouch, j, true)
+            int trig = array.get(zTrig, j)
+            if trig < 0 and array.get(zTouch, j) and bar_index > sb
+                bool brk = (side < 0 and close < bot) or (side > 0 and close > top)
+                bool bos = not needBos or (side < 0 and not na(lsl) and close < lsl) or (side > 0 and not na(lsh) and close > lsh)
+                if brk and isDisp and bos
+                    array.set(zTrig, j, bar_index)
+                    continue
+            if trig >= 0 and bar_index == trig + 1
+                bool stays = (side < 0 and close < bot) or (side > 0 and close > top)
+                if stays and inSess and allowed(side) and sigSide == 0
+                    sigSide := side
+                    sigStop := side < 0 ? top + buf : bot - buf
+                    sigTxt := "CONT" + (array.get(swA, si) ? " A+" : "")
+                array.set(zState, j, 2)
+            continue
+        if st == 1 and bar_index > array.get(zInv, j)
+            int side = -fs
+            if bar_index - array.get(zInv, j) > zoneAge
+                array.set(zState, j, 2)
+                continue
+            if (side < 0 and close > top) or (side > 0 and close < bot)
+                array.set(zState, j, 2)
+                continue
+            bool retest = (side < 0 and high >= bot) or (side > 0 and low <= top)
+            bool reject = (side < 0 and close < bot and close < open) or (side > 0 and close > top and close > open)
+            if retest and reject
+                bool mss = true
+                if needMss
+                    float ref = array.get(zSRef, j)
+                    int back = bar_index - array.get(zSBar, j)
+                    bool hit = false
+                    if not na(ref) and back <= 400
+                        for k = 0 to back
+                            if (side < 0 and close[k] < ref) or (side > 0 and close[k] > ref)
+                                hit := true
+                                break
+                    mss := hit
+                if mss and inSess and allowed(side) and sigSide == 0
+                    sigSide := side
+                    sigStop := side < 0 ? top + buf : bot - buf
+                    sigTxt := "REV" + (array.get(zSA, j) ? " A+" : "")
+                    array.set(zState, j, 2)
+// drop old zones
+while array.size(zBorn) > 0 and (bar_index - array.get(zBorn, 0) > zoneAge * 2 + preBars + 5 or array.size(zBorn) > 400)
+    array.shift(zBorn)
+    array.shift(zSide)
+    array.shift(zBot)
+    array.shift(zTop)
+    array.shift(zState)
+    array.shift(zTouch)
+    array.shift(zTrig)
+    array.shift(zInv)
+    array.shift(zSBar)
+    array.shift(zSRef)
+    array.shift(zSA)
+
+// ── Orders (mirrors lab/engine.py: market entry on the next bar's open) ─────
+var int dayKey = na
+var int dayTrades = 0
+var int lastEntries = 0
+if na(dayKey) or curDay != dayKey
+    dayKey := curDay
+    dayTrades := 0
+entries = strategy.closedtrades + strategy.opentrades
+if entries > lastEntries
+    dayTrades += entries - lastEntries
+lastEntries := entries
+
+nextNewDay = gday(time_close) != curDay
+nextAfter  = afterFlat(modClose)
+var float posStop = na
+var float posTgt = na
+var float posRisk = na
+var bool beDone = false
+if sigSide != 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and not nextAfter and not nextNewDay
+    float risk = (close - sigStop) * sigSide
+    if risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+        posStop := sigStop
+        posRisk := risk
+        posTgt := close + sigSide * rr * risk
+        beDone := false
+        if sigSide > 0
+            strategy.entry("sweepX L", strategy.long, qty = qty, comment = "LONG " + sigTxt)
+            strategy.exit("X L", "sweepX L", stop = posStop, limit = posTgt, comment_profit = "TP", comment_loss = "SL")
+        else
+            strategy.entry("sweepX S", strategy.short, qty = qty, comment = "SHORT " + sigTxt)
+            strategy.exit("X S", "sweepX S", stop = posStop, limit = posTgt, comment_profit = "TP", comment_loss = "SL")
+
+// trail: stop to break-even once price has moved beR × risk
+if beR > 0 and strategy.position_size != 0 and not beDone
+    float ep = strategy.position_avg_price
+    int ps = strategy.position_size > 0 ? 1 : -1
+    if (ps > 0 and high >= ep + beR * posRisk) or (ps < 0 and low <= ep - beR * posRisk)
+        beDone := true
+        if ps > 0
+            strategy.exit("X L", "sweepX L", stop = ep, limit = posTgt, comment_profit = "TP", comment_loss = "BE")
+        else
+            strategy.exit("X S", "sweepX S", stop = ep, limit = posTgt, comment_profit = "TP", comment_loss = "BE")
+
+if strategy.position_size != 0 and (nextAfter or nextNewDay)
+    strategy.close_all(comment = "EOD")
+
+bgcolor(inSess ? color.new(color.gray, 95) : na, title = "Seja")
+bgcolor(showMyHours and inMyHours ? color.new(color.blue, 95) : na, title = "Moje ure")
+plotshape(sigSide > 0, "Long signal", shape.triangleup, location.belowbar, color.teal, size = size.tiny)
+plotshape(sigSide < 0, "Short signal", shape.triangledown, location.abovebar, color.red, size = size.tiny)
+alertcondition(sigSide != 0, "sweepX signal", "sweepX: setup potrjen — vstop na naslednjem baru")
+
+// ── Table ────────────────────────────────────────────────────────────────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 8, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = strategy.closedtrades
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    if n > 0
+        for t = 0 to n - 1
+            float p = strategy.closedtrades.profit(t)
+            if p > 0
+                wins += 1
+                gw += p
+            else
+                gl -= p
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    string bTxt = bias == 99 ? "izklopljen" : bias > 0 ? "BULLISH" : bias < 0 ? "BEARISH" : "nevtralen (1h ≠ 4h)"
+    table.cell(tb, 0, 0, "sweepX", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period + " · " + str.tostring(rr, "#.##") + "R · " + model, text_color = color.white)
+    table.cell(tb, 0, 1, "HTF bias", text_color = color.white)
+    table.cell(tb, 1, 1, bTxt, text_color = bias == 1 ? color.lime : bias == -1 ? color.red : color.gray)
+    table.cell(tb, 0, 2, "Trade-i / WR", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(n) + " / " + str.tostring(wr, "#.0") + "%", text_color = color.white)
+    table.cell(tb, 0, 3, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 3, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 4, "Neto", text_color = color.white)
+    table.cell(tb, 1, 4, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 5, "Trade-i danes", text_color = color.white)
+    table.cell(tb, 1, 5, str.tostring(dayTrades) + " / " + str.tostring(maxTrades), text_color = dayTrades >= maxTrades ? color.red : color.lime)
+    table.cell(tb, 0, 6, "Simbol", text_color = color.white)
+    table.cell(tb, 1, 6, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog." : "✗ samo MNQ ali MGC!", text_color = allowedSym ? color.lime : color.red)
+    table.cell(tb, 0, 7, "Backtest", text_color = color.white)
+    table.cell(tb, 1, 7, "MNQ 3m 56 % +0.37R · 5m 43 % +0.03R (malo podatkov)", text_color = color.white)

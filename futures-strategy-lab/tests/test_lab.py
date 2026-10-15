@@ -312,3 +312,21 @@ def test_features_never_use_future_bars(cut_frac):
                  "or_h", "or_l", "rth_open", "rth_hi_sofar", "rth_lo_sofar", "vwap", "vwap_sd", "pvah", "pval", "ppoc"):
         a, b = getattr(full, name)[:cut], getattr(part, name)
         assert np.allclose(a, b, equal_nan=True), name
+
+
+@pytest.mark.parametrize("cut_frac", [0.37, 0.71])
+def test_sweepx_signals_and_htf_bias_never_use_future_bars(cut_frac):
+    """sweepX signals and the 1h/4h bias on truncated data equal those on full data."""
+    from lab import sweepx
+    df = data.synthetic("MNQ", days=15, seed=21)
+    inst = data.get_instrument("MNQ")
+    cut = int(len(df) * cut_frac)
+    full, part = features.build(df, inst.tick), features.build(df.iloc[:cut], inst.tick)
+    for rule in ("1h", "4h"):
+        assert np.array_equal(sweepx.htf_bias(full, rule)[:cut], sweepx.htf_bias(part, rule)), rule
+    for model in ("reversal", "continuation"):
+        p = {"model": model, "bias": "off", "disp_atr": 0.3}
+        k = lambda s: (s.bar, s.side, s.stop, s.note)  # noqa: E731
+        a = [k(s) for s in sweepx.generate(full, inst, p) if s.bar < cut - 1]
+        b = [k(s) for s in sweepx.generate(part, inst, p) if s.bar < cut - 1]
+        assert a and a == b, model
