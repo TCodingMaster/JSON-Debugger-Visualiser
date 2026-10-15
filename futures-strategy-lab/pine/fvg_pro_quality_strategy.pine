@@ -14,6 +14,13 @@
 // Python backtest (Yahoo, 6. 8. – 15. 10. 2026, s provizijo $0.62/stran in
 // 1 tick slippage): glej results/fvg_pro/trades_quality_MNQ_15m.csv za
 // seznam trade-ov, ki ga lahko primerjaš s Strategy Tester → List of Trades.
+//
+// Moja pravila (iz analize 59 paper trade-ov, 23. 7. – 15. 10. 2026):
+//   1) samo MNQ (2) ali MGC (1) — na drugih simbolih ni trade-ov + opozorilo
+//   2) dnevni limit trade-ov (privzeto 2; Kvaliteta sama trguje max 1/dan)
+//   3) osenčene moje najboljše ure 11:00–18:00 po slovenskem času
+//   4) SL/TP se postavita ob vstopu in se ne premikata (strategija to dela sama)
+//   5) brez impulznih vstopov — samo setupi te strategije
 // Majhen vzorec (~50 sej). Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
 strategy("FVG Pro Kvaliteta — MNQ 15m (1.5R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
@@ -37,7 +44,7 @@ stopLook   = input.int(10, "Stop: lowest low from N bars before the BOS", minval
 expiryBars = input.int(20, "Cancel unfilled order after N bars", minval = 1, group = G2)
 minRiskTk  = input.int(4, "Skip if stop is closer than N ticks", minval = 0, group = G2)
 maxRiskAtr = input.float(3.0, "Skip if stop is wider than N × ATR", minval = 0.5, group = G2)
-maxTrades  = input.int(1, "Max trades per Globex day", minval = 1, group = G2)
+maxTradesIn = input.int(1, "Max trades per Globex day (Quality = 1)", minval = 1, group = G2)
 qtyInput   = input.int(0, "Contracts (0 = auto: MNQ 2, MGC 1, else 1)", minval = 0, group = G2)
 
 G3 = "Sessions (New York time, HHMM-HHMM)"
@@ -54,6 +61,15 @@ G4 = "Display"
 showZones = input.bool(true, "Draw traded FVGs and order levels", group = G4)
 showTable = input.bool(true, "Stats table", group = G4)
 goalWr    = input.float(60.0, "Goal: win rate %", group = G4)
+
+G5 = "Moja pravila (iz analize mojih trade-ov)"
+ruleSymbols = input.bool(true, "1) Samo MNQ in MGC (na drugih simbolih ni trade-ov + opozorilo)", group = G5)
+dailyCap    = input.int(2, "2) Dnevni limit trade-ov", minval = 1, group = G5,
+     tooltip = "Tvoj 3. trade dneva je bil v povprečju izgubarski. Strategija nikoli ne trguje več od tega limita (in ne več od 'Max trades per Globex day').")
+showMyHours = input.bool(true, "3) Osenči moje najboljše ure", group = G5)
+myHours     = input.string("0500-1200", "   Moje ure (New York čas = 11:00–18:00 v Sloveniji)", group = G5)
+showRules   = input.bool(true, "Pokaži pravila v tabeli", group = G5)
+maxTrades   = math.min(maxTradesIn, dailyCap)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 TZ = "America/New_York"
@@ -73,7 +89,9 @@ flatMin  = hm(flatHM, 0)
 afterFlat(int m) => m >= flatMin and m < 18 * 60
 modOpen  = minuteOfDay(time)
 modClose = minuteOfDay(time_close)
-inSess   = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))
+allowedSym = syminfo.root == "MNQ" or syminfo.root == "MGC"
+inSess   = ((useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))) and (not ruleSymbols or allowedSym)
+inMyHours = inWindow(myHours, modOpen)
 
 qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : syminfo.root == "MGC" ? 1 : 1
 tick = syminfo.mintick
@@ -233,11 +251,11 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
             strategy.cancel_all()
             float tgt = entry + side * rr * risk
             if side > 0
-                strategy.entry("FVG L", strategy.long, qty = qty, limit = entry)
-                strategy.exit("X L", "FVG L", stop = st, limit = tgt)
+                strategy.entry("FVG L", strategy.long, qty = qty, limit = entry, comment = "LONG (SL/TP fiksna)")
+                strategy.exit("X L", "FVG L", stop = st, limit = tgt, comment_profit = "TP", comment_loss = "SL")
             else
-                strategy.entry("FVG S", strategy.short, qty = qty, limit = entry)
-                strategy.exit("X S", "FVG S", stop = st, limit = tgt)
+                strategy.entry("FVG S", strategy.short, qty = qty, limit = entry, comment = "SHORT (SL/TP fiksna)")
+                strategy.exit("X S", "FVG S", stop = st, limit = tgt, comment_profit = "TP", comment_loss = "SL")
             pending   := true
             pendBar   := bar_index
             pendSide  := side
@@ -266,10 +284,19 @@ if strategy.position_size != 0 and (nextAfter or nextNewDay)
 plotshape(bosUp, "BOS up", shape.triangleup, location.belowbar, color.new(color.teal, 30), size = size.tiny)
 plotshape(bosDn, "BOS down", shape.triangledown, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
 bgcolor(inSess ? color.new(color.gray, 94) : na, title = "Setup session")
+bgcolor(showMyHours and inMyHours ? color.new(color.blue, 95) : na, title = "Moje ure")
+
+// daily limit reached → one alert
+var bool capAlerted = false
+if gday(time) != gday(time[1])
+    capAlerted := false
+if dayTrades >= maxTrades and strategy.position_size == 0 and not capAlerted
+    capAlerted := true
+    alert(syminfo.ticker + " FVG Pro Q: dnevni limit (" + str.tostring(maxTrades) + ") dosežen — konec trgovanja za danes.", alert.freq_once_per_bar_close)
 
 // ── Stats table ──────────────────────────────────────────────────────────────
 if showTable and barstate.islastconfirmedhistory or showTable and barstate.islast
-    var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 15), border_width = 1)
+    var table tb = table.new(position.top_right, 2, 13, bgcolor = color.new(color.black, 15), border_width = 1)
     int n = strategy.closedtrades
     int wins = 0
     float gw = 0.0
@@ -299,5 +326,27 @@ if showTable and barstate.islastconfirmedhistory or showTable and barstate.islas
     table.cell(tb, 1, 5, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
     table.cell(tb, 0, 6, "Breakeven WR at " + str.tostring(rr, "#.#") + "R", text_color = color.white)
     table.cell(tb, 1, 6, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)
+    if showRules
+        bool done = dayTrades >= maxTrades
+        table.cell(tb, 0, 7, "MOJA PRAVILA", text_color = color.aqua)
+        table.cell(tb, 1, 7, "", text_color = color.aqua)
+        table.cell(tb, 0, 8, "1 Simbol in velikost", text_color = color.white)
+        table.cell(tb, 1, 8, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog. (vedno enako)" : "✗ samo MNQ ali MGC!",
+             text_color = allowedSym ? color.lime : color.red)
+        table.cell(tb, 0, 9, "2 Trade-i danes", text_color = color.white)
+        table.cell(tb, 1, 9, str.tostring(dayTrades) + " / " + str.tostring(maxTrades) + (done ? " — konec za danes" : ""),
+             text_color = done ? color.red : color.lime)
+        table.cell(tb, 0, 10, "3 Moje ure (11–18 SLO)", text_color = color.white)
+        table.cell(tb, 1, 10, inMyHours ? "zdaj ✓" : "ne zdaj", text_color = inMyHours ? color.lime : color.gray)
+        table.cell(tb, 0, 11, "4 SL in TP", text_color = color.white)
+        table.cell(tb, 1, 11, "postavljena ob vstopu, se ne premikata", text_color = color.white)
+        table.cell(tb, 0, 12, "5 Brez impulznih vstopov", text_color = color.white)
+        table.cell(tb, 1, 12, "samo setupi te strategije", text_color = color.white)
+
+// rule 1: loud warning on any other symbol (GC1! cost −$4,320 in two trades)
+if ruleSymbols and not allowedSym and barstate.islast
+    var table warn = table.new(position.bottom_center, 1, 1, bgcolor = color.new(color.red, 10))
+    table.cell(warn, 0, 0, "⚠ PRAVILO 1: ta strategija trguje samo MNQ (2 pogodbi) ali MGC (1). Ta graf: " + syminfo.ticker +
+         " — brez trade-ov. Dva trade-a na GC1! sta te stala −$4,320.", text_color = color.white, text_size = size.large)
 
 alertcondition(bosUp or bosDn, "FVG Pro: break of structure", "FVG Pro: BOS on {{ticker}}")
