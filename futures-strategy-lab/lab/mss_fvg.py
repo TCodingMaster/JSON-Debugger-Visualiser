@@ -35,6 +35,13 @@ DEFAULTS = dict(
     rr=2.0, expiry=20, use_session_liq=False,
     windows=(("20:00", "24:00"), ("00:00", "15:30")),
     flatten="15:55", max_trades=2,
+    # quality filters (all off = the user's base method)
+    sweep_close_back=False,   # sweep candle closes back on the right side of the swept level (wick sweep)
+    major_liq=False,          # the sweep must take a major level: PDH/PDL, overnight, Asia or London high/low
+    max_sweep_age=0,          # MSS must come within N bars of the sweep extreme (0 = off)
+    disp_atr=0.0,             # a candle in the MSS leg must have a body >= N x ATR (displacement)
+    respect_wick=0.0,         # respect candle: rejection wick >= this fraction of its range
+    trend_filter=False,       # trade only with the 1-hour trend (20-hour EMA slope)
 )
 
 
@@ -60,6 +67,9 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
     n, L = feat.n, int(p["pivot_len"])
     tick = inst.tick
     sw = _swings(h, l, L)
+    if p["trend_filter"]:
+        from .fvg_pro import trend_sign
+        trend = trend_sign(feat)
     win = np.zeros(n, bool)
     for s_, e_ in p["windows"]:
         win |= (feat.mod >= hm(s_)) & (feat.mod < hm(e_))
@@ -122,6 +132,22 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                             liq = lv if h[int(sl_bar):lo_bar + 1].max() > lv else liq
                 if math.isnan(liq) or not ext > liq:
                     continue
+            # quality filters
+            start = int(sh_bar) if side > 0 else int(sl_bar)
+            if p["sweep_close_back"] and not ((c[lo_bar] > liq) if side > 0 else (c[lo_bar] < liq)):
+                continue
+            if p["major_liq"]:
+                lvls = (feat.pdl[i], feat.onl[i], feat.asia_l[i], feat.london_l[i]) if side > 0 else \
+                    (feat.pdh[i], feat.onh[i], feat.asia_h[i], feat.london_h[i])
+                if not any(not math.isnan(lv) and ((ext < lv < h[start]) if side > 0 else (ext > lv > l[start]))
+                           for lv in lvls):
+                    continue
+            if p["max_sweep_age"] and i - lo_bar > p["max_sweep_age"]:
+                continue
+            if p["disp_atr"] and np.abs(c[lo_bar + 1:i + 1] - o[lo_bar + 1:i + 1]).max(initial=0) < p["disp_atr"] * a[i]:
+                continue
+            if p["trend_filter"] and trend[i] * side <= 0:
+                continue
             # 4: most recent FVG in the MSS leg (already formed), else wait
             g = None
             for k in range(i, lo_bar + 1, -1):
@@ -160,6 +186,10 @@ def generate(feat, inst, p: dict | None = None) -> list[Setup]:
                 held = (c[i] > top) if side > 0 else (c[i] < bot)
             else:
                 held = (c[i] >= bot) if side > 0 else (c[i] <= top)
+            if touched and held and p["respect_wick"]:
+                rng_ = h[i] - l[i]
+                wick = (min(o[i], c[i]) - l[i]) if side > 0 else (h[i] - max(o[i], c[i]))
+                held = rng_ > 0 and wick >= p["respect_wick"] * rng_
             if touched and held:
                 if win[i]:
                     if p["stop_mode"] == "fvg":
