@@ -45,13 +45,30 @@ COMBOS = {
     "CONTROL": "Random entries (control)",
 }
 
+# Liquidity sweep + order block + FVG study (the user's second playbook).
+OB_COMBOS = {
+    "S": "Liquidity sweep only",
+    "F": "FVG respected only",
+    "SF": "Sweep + FVG (no order block)",
+    "SOF": "Sweep + order block + FVG, entry at FVG 50%",
+    "SOF@OB": "Sweep + order block + FVG, entry at order block",
+    "CONTROL": "Random entries (control)",
+}
+
+OB_WINDOWS = {
+    "ny_10_13": [("10:00", "13:00")],
+    "asia_20_04": [("20:00", "24:00"), ("00:00", "04:00")],
+    "both": [("20:00", "24:00"), ("00:00", "04:00"), ("10:00", "13:00")],
+}
+
 WINDOWS = {
     "ny_am": [("09:30", "11:30")],
     "extended": [("03:00", "05:00"), ("08:30", "15:00")],
 }
 
 DEFAULTS = dict(pivot_len=3, max_pool_age=300, wick_ratio=0.40, rej_wick=0.50, rej_range_atr=1.0,
-                fvg_window=10, min_fvg_atr=0.10, order_expiry=20, buffer_ticks=2, rr=2.0)
+                fvg_window=10, min_fvg_atr=0.10, order_expiry=20, buffer_ticks=2, rr=2.0,
+                asia_levels=False)
 
 
 def _in(feat, i, windows):
@@ -69,6 +86,7 @@ def generate(combo: str, feat: Features, inst: Instrument, windows, p: dict | No
     if combo == "CONTROL":
         return _control(feat, windows, p, seed)
     use_s, use_r, use_f = "S" in combo, "R" in combo, "F" in combo
+    use_o, ob_entry = "O" in combo, combo.endswith("@OB")
     if use_f and not (use_s or use_r):
         return _fvg_only(feat, inst, windows, p)
 
@@ -98,6 +116,12 @@ def generate(combo: str, feat: Features, inst: Instrument, windows, p: dict | No
                 for lvl, fresh in ((feat.pdl[i], feat.pdl[i] < feat.onl[i]), (feat.onl[i], True)):
                     if _ok(lvl) and fresh:
                         lows.append([lvl, i - 1])
+            if p["asia_levels"] and feat.mod[i] == hm("20:00"):
+                # the RTH session that just closed is resting liquidity for Asia
+                if _ok(feat.pdh[i]):
+                    highs.append([feat.pdh[i], i - 1])
+                if _ok(feat.pdl[i]):
+                    lows.append([feat.pdl[i], i - 1])
             highs[:] = [x for x in highs if i - x[1] <= p["max_pool_age"]]
             lows[:] = [x for x in lows if i - x[1] <= p["max_pool_age"]]
             taken_h = [x for x in highs if h[i] > x[0] and x[1] < i]
@@ -149,10 +173,21 @@ def generate(combo: str, feat: Features, inst: Instrument, windows, p: dict | No
                 continue
             bot, top = gap
             entry = inst.round_price((top + bot) / 2)
+            invalidate = top if side < 0 else bot
+            note = f"{st['label']} -> FVG {bot:.2f}-{top:.2f}"
+            if use_o:
+                ob = _order_block(o, h, l, c, st["bar"], i, side)
+                if ob is None:
+                    continue  # no valid order block behind this gap; keep waiting
+                ob_lo, ob_hi = ob
+                note += f", OB {ob_lo:.2f}-{ob_hi:.2f}"
+                if ob_entry:
+                    # retrace through the FVG into the order block's near edge
+                    entry = inst.round_price(ob_lo if side < 0 else ob_hi)
+                    invalidate = ob_hi if side < 0 else ob_lo
             stop = st["extreme"] - side * buf
             out.append(Setup(i, side, "limit", entry, stop, rr=p["rr"], expiry=p["order_expiry"],
-                             invalidate=top if side < 0 else bot,
-                             note=f"{st['label']} -> FVG {bot:.2f}-{top:.2f}"))
+                             invalidate=invalidate, note=note))
             armed[side] = None
     return out
 
@@ -162,6 +197,20 @@ def _gap(h, l, i, side):
         return h[i], l[i - 2]
     if side > 0 and l[i] > h[i - 2]:
         return h[i - 2], l[i]
+    return None
+
+
+def _order_block(o, h, l, c, start, i, side):
+    """ICT-style order block for a reversal after a sweep: the LAST candle of
+    the opposite colour (up-close candle for a short, down-close for a long)
+    between the sweep bar and the first candle of the FVG, provided the
+    displacement candle(s) then CLOSE through it (bearish: close below its
+    low). Returns (low, high) of that candle or None."""
+    for j in range(i - 2, start - 1, -1):
+        opposite = c[j] > o[j] if side < 0 else c[j] < o[j]
+        if opposite:
+            broke = min(c[i - 1], c[i]) < l[j] if side < 0 else max(c[i - 1], c[i]) > h[j]
+            return (l[j], h[j]) if broke else None
     return None
 
 
@@ -215,25 +264,27 @@ def boot_ci(r: np.ndarray, runs: int = 2000, seed: int = 3):
     return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
 
 
-def run_study(datasets: dict, cfg: engine.EngineConfig, windows=None, log=print) -> list[dict]:
+def run_study(datasets: dict, cfg: engine.EngineConfig, windows=None, log=print,
+              combos: dict | None = None, params: dict | None = None) -> list[dict]:
     """datasets: {(symbol, timeframe): DataFrame}. Returns one row per
     combo × symbol × timeframe × window."""
     windows = windows or WINDOWS
+    combos = combos or COMBOS
     rows = []
     for (sym, tf), df in datasets.items():
         inst = get_instrument(sym)
         feat = features.build(df, inst.tick)
         days = len(np.unique(feat.day))
         for wname, win in windows.items():
-            for combo in COMBOS:
-                trades = engine.run(feat, generate(combo, feat, inst, win), inst, cfg)
+            for combo in combos:
+                trades = engine.run(feat, generate(combo, feat, inst, win, params), inst, cfg)
                 r = np.array([t.r for t in trades])
                 m = metrics.summarize(trades, mc_runs=200) if trades else {"trades": 0}
                 k = int((r > 0).sum())
                 wlo, whi = wilson(k, len(r))
                 elo, ehi = boot_ci(r)
                 row = {
-                    "combo": combo, "label": COMBOS[combo], "symbol": sym, "timeframe": tf, "window": wname,
+                    "combo": combo, "label": combos[combo], "symbol": sym, "timeframe": tf, "window": wname,
                     "sessions": int(days), "trades": int(len(r)),
                     "win_rate": float(k / len(r)) if len(r) else None, "wr_lo": wlo, "wr_hi": whi,
                     "expectancy_r": float(r.mean()) if len(r) else None,
@@ -249,12 +300,12 @@ def run_study(datasets: dict, cfg: engine.EngineConfig, windows=None, log=print)
     return rows
 
 
-def pooled(rows: list[dict]) -> list[dict]:
+def pooled(rows: list[dict], combos: dict | None = None) -> list[dict]:
     """Per combination, all symbol/timeframe/window rows added together.
     The rows overlap (same days on 2m/5m/15m), so this is a summary, not
     independent evidence."""
     out = []
-    for combo, label in COMBOS.items():
+    for combo, label in (combos or COMBOS).items():
         sub = [r for r in rows if r["combo"] == combo and r["trades"]]
         n = sum(r["trades"] for r in sub)
         if not n:
@@ -267,14 +318,15 @@ def pooled(rows: list[dict]) -> list[dict]:
     return out
 
 
-def markdown(rows: list[dict], note: str) -> str:
-    out = ["# Concepts only: sweep (S), rejection block (R), FVG respected (F)", "", note, "",
+def markdown(rows: list[dict], note: str, combos: dict | None = None,
+             title: str = "Concepts only: sweep (S), rejection block (R), FVG respected (F)") -> str:
+    out = [f"# {title}", "", note, "",
            "Fixed 2R, 2 MNQ / 1 MGC, commissions + 1 tick slippage on stop/market fills. "
            "Brackets are 95 % confidence intervals. Rows where the interval for expectancy stays above 0 are marked ✅. "
            "Max 2 trades per day (your plan), so frequent signals are capped at the first two each day.", "",
            "## Pooled by combination (all markets, timeframes and windows)", "",
            "| Combo | Trades | Win rate | Expectancy | Rows positive |", "|---|---|---|---|---|"]
-    for p in pooled(rows):
+    for p in pooled(rows, combos):
         out.append(f"| {p['label']} | {p['trades']} | {p['win_rate']:.1%} | {p['expectancy_r']:+.3f}R | "
                    f"{p['positive_rows']}/{p['rows']} |")
     out += ["", "Rows overlap (the same days on 2m, 5m and 15m), so the pooled numbers are a summary, "

@@ -211,3 +211,26 @@ def test_wilson_interval():
     from lab import components
     lo, hi = components.wilson(6, 10)
     assert 0.3 < lo < 0.6 < hi < 0.9
+
+
+def test_sweep_order_block_fvg():
+    from lab import components
+    rows = [[100, 101, 99, 100]] * 3
+    rows += [[100, 105, 100, 104], [104, 104.5, 103, 103.5], [103.5, 104, 102, 102.5]]  # swing high 105
+    rows += [[102.5, 103, 101.5, 102], [102, 103.5, 101.5, 103]]
+    rows += [[103, 106, 102.8, 103.2]]       # sweep 105; up-close candle = order block 102.8-106
+    rows += [[103.2, 103.4, 100, 100.2]]     # displacement closes below the OB low
+    rows += [[100.2, 101, 98, 98.5]]         # FVG 101-102.8
+    rows += [[98.5, 99, 97, 97.5]] * 3
+    f = features.build(bars(rows), FREE.tick)
+    win = [("09:30", "11:30")]
+    p = {"min_fvg_atr": 0.0}
+    ce = components.generate("SOF", f, FREE, win, p)
+    at_ob = components.generate("SOF@OB", f, FREE, win, p)
+    assert len(ce) == 1 and ce[0].entry == pytest.approx(101.9, abs=0.25) and ce[0].side == -1
+    assert len(at_ob) == 1 and at_ob[0].entry == pytest.approx(102.75, abs=0.25) and at_ob[0].invalidate == 106
+    # no opposite-colour candle broken by the displacement -> no order block -> no trade
+    rows[8] = [103.2, 106, 102.8, 103]       # sweep candle closes DOWN: no up-close OB candle after it
+    rows[7] = [102, 103.5, 101.5, 101.6]
+    f2 = features.build(bars(rows), FREE.tick)
+    assert components.generate("SOF", f2, FREE, win, p) == []
