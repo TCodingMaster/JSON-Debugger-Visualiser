@@ -23,12 +23,18 @@
 // Pri 2R je break-even WR 33 %. Dodatni koncepti (VWAP, ADX, RSI, rel. volumen,
 // ATR režim, Globex open, 1h/4h struktura, break-even, CE vstop) WR niso
 // zanesljivo dvignili → niso dodani.
+// Natančnost Strategy Testerja: Bar Magnifier vklopljen (polnjenje po nižjem
+// timeframu, kjer paket to omogoča), limit naročila se zapolnijo šele, ko cena
+// gre 1 tick čez nivo (ne že ob dotiku), tabela šteje samo trade-e v izbranem
+// obdobju (isto obdobje nastavi v Strategy Tester) in pokaže konzervativni WR
+// brez zmag na "dvoumnih" barih (SL in TP v isti sveči).
 // Majhen vzorec (~50 sej). Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
 strategy("FVG Pro Kvaliteta — MNQ 15m (2R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false,
+     use_bar_magnifier = true, backtest_fill_limits_assumption = 1,
      max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300, max_bars_back = 300)
 
 // ── Inputs ───────────────────────────────────────────────────────────────────
@@ -66,6 +72,10 @@ emaRule = input.string("Naklon EMA", "Pravilo", options = ["Naklon EMA", "Cena n
 emaFast = input.int(20, "Hitra EMA (za križ)", minval = 1, group = GE)
 showEma = input.bool(true, "Pokaži EMA", group = GE)
 
+GD = "Obdobje testa (isto nastavi v Strategy Tester)"
+startT = input.time(timestamp("2000-01-01T00:00:00"), "Začetek (novi trade-i od)", group = GD)
+endT   = input.time(timestamp("2100-01-01T00:00:00"), "Konec (novi trade-i do)", group = GD)
+
 G4 = "Display"
 showZones = input.bool(true, "Draw traded FVGs and order levels", group = G4)
 showTable = input.bool(true, "Stats table", group = G4)
@@ -102,6 +112,7 @@ flatMin  = hm(flatHM, 0)
 afterFlat(int m) => m >= flatMin and m < 18 * 60
 modOpen  = minuteOfDay(time)
 modClose = minuteOfDay(time_close)
+inRange  = time >= startT and time < endT
 inSess   = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))
 
 qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : syminfo.root == "MGC" ? 1 : 1
@@ -246,6 +257,18 @@ entries = strategy.closedtrades + strategy.opentrades
 if entries > lastEntries
     dayTrades += entries - lastEntries
     pending := false
+
+// ambiguous bars: stop AND target both inside one bar while the trade is live.
+// Without lower-timeframe data nobody can know which came first, so such a
+// win is not counted in the conservative win rate.
+var array<bool> ambByTrade = array.new<bool>()
+var int lastClosed = 0
+while array.size(ambByTrade) < entries
+    array.push(ambByTrade, false)
+bool liveThisBar = strategy.position_size != 0 or entries > lastEntries or strategy.closedtrades > lastClosed
+if liveThisBar and entries > 0 and not na(pendStop) and high >= math.max(pendStop, pendTgt) and low <= math.min(pendStop, pendTgt)
+    array.set(ambByTrade, entries - 1, true)
+lastClosed := strategy.closedtrades
 lastEntries := entries
 
 // pending order: invalidate on a close through the gap (only if not filled)
@@ -260,7 +283,7 @@ if pending and strategy.position_size == 0
 nSet = array.size(setSide)
 bool hadPending = pending
 bool placed = false
-if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and inSess
+if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and inSess and inRange
     for i = 0 to nSet - 1
         int side  = array.get(setSide, i)
         float bot = array.get(setBot, i)
@@ -318,37 +341,52 @@ plotshape(bosUp, "BOS up", shape.triangleup, location.belowbar, color.new(color.
 plotshape(bosDn, "BOS down", shape.triangledown, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
 bgcolor(inSess ? color.new(color.gray, 94) : na, title = "Setup session")
 
-// ── Stats table ──────────────────────────────────────────────────────────────
-if showTable and barstate.islastconfirmedhistory or showTable and barstate.islast
-    var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 15), border_width = 1)
-    int n = strategy.closedtrades
+var int firstBarTime = time
+
+// ── Stats table (only trades whose entry is inside the test period) ─────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = 0
     int wins = 0
+    int ambWins = 0
+    int amb = 0
     float gw = 0.0
     float gl = 0.0
-    if n > 0
-        for t = 0 to n - 1
-            float p = strategy.closedtrades.profit(t)
-            if p > 0
-                wins += 1
-                gw += p
-            else
-                gl -= p
+    if strategy.closedtrades > 0
+        for k = 0 to strategy.closedtrades - 1
+            int et = strategy.closedtrades.entry_time(k)
+            if et >= startT and et < endT
+                float p = strategy.closedtrades.profit(k)
+                bool a = k < array.size(ambByTrade) and array.get(ambByTrade, k)
+                n += 1
+                amb += a ? 1 : 0
+                if p > 0
+                    wins += 1
+                    gw += p
+                    ambWins += a ? 1 : 0
+                else
+                    gl -= p
     float wr = n > 0 ? 100.0 * wins / n : 0.0
+    float wrC = n > 0 ? 100.0 * (wins - ambWins) / n : 0.0
     float avgW = wins > 0 ? gw / wins : 0.0
     float avgL = n - wins > 0 ? gl / (n - wins) : 0.0
     table.cell(tb, 0, 0, "FVG Pro", text_color = color.white)
     table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period, text_color = color.white)
-    table.cell(tb, 0, 1, "Trades", text_color = color.white)
-    table.cell(tb, 1, 1, str.tostring(n), text_color = color.white)
-    table.cell(tb, 0, 2, "Win rate", text_color = color.white)
-    table.cell(tb, 1, 2, str.tostring(wr, "#.0") + "%  (goal " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
-    table.cell(tb, 0, 3, "Avg win / avg loss", text_color = color.white)
-    table.cell(tb, 1, 3, avgL > 0 ? str.tostring(avgW / avgL, "#.00") : "–", text_color = color.white)
-    table.cell(tb, 0, 4, "Profit factor", text_color = color.white)
-    table.cell(tb, 1, 4, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
-    table.cell(tb, 0, 5, "Net P&L", text_color = color.white)
-    table.cell(tb, 1, 5, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
-    table.cell(tb, 0, 6, "Breakeven WR at " + str.tostring(rr, "#.#") + "R", text_color = color.white)
-    table.cell(tb, 1, 6, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)
+    table.cell(tb, 0, 1, "Obdobje", text_color = color.white)
+    table.cell(tb, 1, 1, str.format("{0,date,yyyy-MM-dd} → {1,date,yyyy-MM-dd}", math.max(startT, firstBarTime), math.min(endT, time)), text_color = color.white)
+    table.cell(tb, 0, 2, "Trades (zaprti)", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(n) + (strategy.opentrades > 0 ? " + 1 odprt" : ""), text_color = color.white)
+    table.cell(tb, 0, 3, "Win rate", text_color = color.white)
+    table.cell(tb, 1, 3, str.tostring(wr, "#.0") + "%  (goal " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
+    table.cell(tb, 0, 4, "Win rate konzervativno", text_color = color.white)
+    table.cell(tb, 1, 4, str.tostring(wrC, "#.0") + "%  (dvoumni bari: " + str.tostring(amb) + ")", text_color = amb == 0 ? color.lime : color.orange)
+    table.cell(tb, 0, 5, "Avg win / avg loss", text_color = color.white)
+    table.cell(tb, 1, 5, avgL > 0 ? str.tostring(avgW / avgL, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 6, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 6, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 7, "Net P&L (obdobje)", text_color = color.white)
+    table.cell(tb, 1, 7, "$" + str.tostring(gw - gl, "#,###"), text_color = gw - gl >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 8, "Breakeven WR at " + str.tostring(rr, "#.#") + "R", text_color = color.white)
+    table.cell(tb, 1, 8, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)
 
 alertcondition(bosUp or bosDn, "FVG Pro: break of structure", "FVG Pro: BOS on {{ticker}}")
