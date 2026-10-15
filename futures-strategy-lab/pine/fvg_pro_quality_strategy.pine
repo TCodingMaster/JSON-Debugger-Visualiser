@@ -1,13 +1,13 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// FVG Pro — KVALITETA (MNQ 15m, Asia + London, 1 trade na dan, 1.5R)
+// FVG Pro — KVALITETA (MNQ 15m, Asia + London, 1 trade na dan, 2R)
 //
 // Ista pravila kot pine/fvg_pro_strategy.pine in lab/fvg_pro.py, s privzetimi
 // nastavitvami načina "Kvaliteta" iz indikatorja FVG Pro Setups v2:
 //   • graf: MNQ1! 15 minut, 2 pogodbi (samodejno)
 //   • seje (New York čas): Asia 20:00–24:00, London 02:00–05:00
 //     (Slovenija: 02:00–06:00 in 08:00–11:00)
-//   • max 1 trade na Globex dan, TP 1.5R, SL za ekstremom poteze + 2 ticka
+//   • max 1 trade na Globex dan, TP 2R, SL za ekstremom poteze + 2 ticka
 //   • vstop: limit na robu FVG po BOS, velja 20 barov, preklic, če sveča
 //     zapre skozi FVG; vse zaprto do 15:55 NY
 //
@@ -18,9 +18,14 @@
 // samo, ko pada. Python, MNQ 15m: brez EMA 28 tr., 67.9 % WR, +$6.336;
 // z EMA 50 naklon 26 tr., 73 % WR, +$6.669 (in-sample 59 → 65 %). Izboljšanje
 // je majhno (1–2 trade-a). Na MGC 15m EMA filter POSLABŠA rezultat → izklopi.
+// Privzeto 2R (prej 1.5R). MNQ 15m pri 2R: brez EMA 28 tr., 61 % WR, +0.79R,
+// +$7.000; z EMA 50 naklon 26 tr., 62 % WR, +0.81R, +$6.640 (nevideni del 78 %).
+// Pri 2R je break-even WR 33 %. Dodatni koncepti (VWAP, ADX, RSI, rel. volumen,
+// ATR režim, Globex open, 1h/4h struktura, break-even, CE vstop) WR niso
+// zanesljivo dvignili → niso dodani.
 // Majhen vzorec (~50 sej). Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("FVG Pro Kvaliteta — MNQ 15m (1.5R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
+strategy("FVG Pro Kvaliteta — MNQ 15m (2R, 1/dan)", shorttitle = "FVG Pro Q", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false,
@@ -35,7 +40,7 @@ fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxva
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
 
 G2 = "Risk"
-rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
 bufTicks   = input.int(2, "Stop buffer (ticks)", minval = 0, group = G2)
 stopLook   = input.int(10, "Stop: lowest low from N bars before the BOS", minval = 1, maxval = 50, group = G2)
 expiryBars = input.int(20, "Cancel unfilled order after N bars", minval = 1, group = G2)

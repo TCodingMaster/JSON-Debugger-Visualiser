@@ -35,6 +35,9 @@ class Instrument:
 INSTRUMENTS: dict[str, Instrument] = {
     "MNQ": Instrument("MNQ", tick=0.25, point_value=2.0, contracts=2, commission=0.62),
     "MGC": Instrument("MGC", tick=0.10, point_value=10.0, contracts=1, commission=0.82),
+    # crude oil (NYMEX): full and micro contract
+    "MCL": Instrument("MCL", tick=0.01, point_value=100.0, contracts=1, commission=0.75),
+    "CL": Instrument("CL", tick=0.01, point_value=1000.0, contracts=1, commission=2.25),
 }
 
 
@@ -173,8 +176,8 @@ def synthetic(symbol: str, days: int = 120, interval_min: int = 5, seed: int = 7
     that sweep logic has something to find. Purely for demos and tests."""
     inst = get_instrument(symbol)
     rng = np.random.default_rng(seed)
-    base = {"MNQ": 21000.0, "MGC": 3400.0}[inst.symbol]
-    daily_vol = {"MNQ": 0.013, "MGC": 0.010}[inst.symbol]
+    base = {"MNQ": 21000.0, "MGC": 3400.0}.get(inst.symbol, 70.0)
+    daily_vol = {"MNQ": 0.013, "MGC": 0.010}.get(inst.symbol, 0.02)
 
     sessions = pd.bdate_range(start=start, periods=days, tz=NY)
     stamps = []
