@@ -7,6 +7,7 @@
   python lab.py backtest --source synthetic             # demo only, numbers mean nothing
   python lab.py sweep --csv MNQ=mnq_5m.csv              # parameter grid for lsrb_fvg with OOS check
   python lab.py components --source yf                  # sweep / rejection / FVG tested alone and combined
+  python lab.py research --update                       # ICT research engine on 1-15m (run daily)
   python lab.py concepts                                # list the concept database
   python lab.py discover --api-key KEY                  # find new candidates on YouTube
 
@@ -139,6 +140,37 @@ def cmd_components(args):
     print(f"\nwrote {out} and {md}")
 
 
+def cmd_research(args):
+    """ICT research engine: every family × window × context × entry × timeframe."""
+    from datetime import date
+    from lab import research
+
+    today = args.date or date.today().isoformat()
+    if args.source == "synthetic":
+        ds = {(s, "5m"): data.synthetic(s, days=args.days, seed=args.seed) for s in args.symbols}
+        mode, note = "synthetic", "Synthetic demo data — not evidence."
+    else:
+        print("updating data store (data/store) ..." if args.update else "using data/store ...")
+        ds = (research.update_store(args.symbols, args.timeframes) if args.update
+              else research.load_store(args.symbols, args.timeframes))
+        if not ds:
+            raise SystemExit("no data: run with --update (needs network access to Yahoo Finance)")
+        mode = "real"
+        spans = ", ".join(f"{s} {tf} {df.index[0]:%Y-%m-%d}→{df.index[-1]:%Y-%m-%d}" for (s, tf), df in sorted(ds.items()))
+        note = f"Yahoo Finance bars accumulated in data/store: {spans}."
+    wpath = research.OUT / "watchlist.json"
+    watch_ids = {w["id"] for w in json.loads(wpath.read_text())} if wpath.exists() else set()
+    fams = args.families or None
+    rows, kept = research.run(ds, _cfg(args), rr=args.rr, families=fams, keep_trades=watch_ids)
+    research.judge(rows)
+    summary = research.summarize(rows)
+    watch = research.forward_update(rows, kept, today) if mode == "real" else []
+    history = research.append_history(summary, today) if mode == "real" else []
+    research.export(rows, summary, watch, history, note, mode)
+    print((research.OUT / "report.md").read_text())
+    print("wrote lab-research.js and results/research/ — open mock.html")
+
+
 def cmd_concepts(args):
     for c in report.load_concepts():
         print(f"{c['id']:16s} {c['name']}\n{'':16s} source: {c['source']['trader']}  "
@@ -185,6 +217,15 @@ def main(argv=None):
     p.add_argument("--study", choices=["srf", "ob"], default="srf",
                    help="srf: sweep/rejection/FVG; ob: sweep + order block + FVG in NY 10-13 and Asia 20-04")
     p.set_defaults(fn=cmd_components)
+
+    p = sub.add_parser("research", help="ICT research engine: every concept variant on 1-15m, with OOS + FDR checks")
+    data_args(p)
+    p.add_argument("--update", action="store_true", help="download the latest bars into data/store first")
+    p.add_argument("--timeframes", nargs="+", default=["1m", "2m", "3m", "5m", "15m"])
+    p.add_argument("--families", nargs="+")
+    p.add_argument("--rr", type=float, default=2.0)
+    p.add_argument("--date", help="override today's date (YYYY-MM-DD) for the history log")
+    p.set_defaults(fn=cmd_research, source="yf")
 
     p = sub.add_parser("concepts", help="list the concept database")
     p.set_defaults(fn=cmd_concepts)

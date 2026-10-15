@@ -234,3 +234,50 @@ def test_sweep_order_block_fvg():
     rows[7] = [102, 103.5, 101.5, 101.6]
     f2 = features.build(bars(rows), FREE.tick)
     assert components.generate("SOF", f2, FREE, win, p) == []
+
+
+# ------------------------------------------------------------------ research engine
+def test_research_families_have_no_lookahead():
+    from lab import research
+    df = data.synthetic("MNQ", days=12, seed=9)
+    inst = data.get_instrument("MNQ")
+    p = {**research.P, "rr": 2.0}
+    f = features.build(df, inst.tick)
+    cut = f.n // 2
+    f2 = features.build(df.iloc[:cut], inst.tick)
+    b, b2 = research.blocks(f), research.blocks(f2)
+    for fam, fn in research.FAMILY_FN.items():
+        for mode in research.ENTRIES:
+            full = [(s.bar, s.side, round(s.entry, 4), round(s.stop, 4)) for s in fn(f, b, inst, mode, p) if s.bar < cut - 1]
+            part = [(s.bar, s.side, round(s.entry, 4), round(s.stop, 4)) for s in fn(f2, b2, inst, mode, p) if s.bar < cut - 1]
+            assert full == part, (fam, mode)
+            assert all(s.bar < f.n for s in fn(f, b, inst, mode, p))
+
+
+def test_bh_qvalues():
+    from lab import research
+    q = research.bh_qvalues([0.01, 0.04, 0.03, 0.5])
+    assert q[0] == pytest.approx(0.04) and q[3] == pytest.approx(0.5)
+    assert all(a <= 1 for a in q) and q[2] <= q[1]
+
+
+def test_research_store_roundtrip(tmp_path, monkeypatch):
+    from lab import research
+    monkeypatch.setattr(research, "STORE", tmp_path)
+    df = data.synthetic("MGC", days=25, seed=2)  # spans two months
+    research._store_write("MGC", "5m", df)
+    research._store_write("MGC", "5m", df)       # idempotent
+    back = research._store_read("MGC", "5m")
+    assert len(list((tmp_path / "MGC_5m").glob("*.csv.gz"))) >= 2
+    assert len(back) == len(df) and back.index.equals(df.index)
+    assert np.allclose(back["close"].to_numpy(), df["close"].to_numpy())
+
+
+def test_research_run_and_judge_smoke():
+    from lab import research
+    ds = {("MNQ", "5m"): data.synthetic("MNQ", days=15, seed=4)}
+    rows, _ = research.run(ds, EngineConfig(), families=["fvg", "random"], log=lambda *_: None)
+    research.judge(rows)
+    s = research.summarize(rows)
+    assert len(rows) == 2 * len(research.WINDOWS) * len(research.CONTEXTS) * 2
+    assert {"survivors", "random_survivors", "families"} <= set(s)

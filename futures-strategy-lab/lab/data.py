@@ -90,7 +90,12 @@ def load_csv(path: str | Path, tz: str | None = None) -> pd.DataFrame:
     timestamps are always UTC.
     """
     path = Path(path)
-    text_head = path.read_text(errors="ignore")[:2000]
+    if path.suffix == ".gz":
+        import gzip
+        with gzip.open(path, "rt", errors="ignore") as fh:
+            text_head = fh.read(2000)
+    else:
+        text_head = path.read_text(errors="ignore")[:2000]
     first = text_head.splitlines()[0] if text_head else ""
 
     if ";" in first and "," not in first:

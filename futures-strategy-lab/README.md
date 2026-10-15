@@ -47,12 +47,22 @@ dashboard shows a warning banner for them.
 | `backtest` | Runs every concept × symbol, writes `lab-data.js` (for mock.html), `results/summary.md` and one trade-list CSV per run |
 | `components` | Tests liquidity sweep (S), rejection block (R) and FVG respected (F) **alone and in every combination**, with no trader's rules, on 2m/5m/15m against a random-entry control; writes `lab-concepts.js` (the "Concepts only" section of mock.html) and `results/concepts_only.md` |
 | `components --study ob` | Liquidity sweep + **order block** + FVG respected, only in NY 10:00–13:00 and Asia 20:00–04:00 (ET), with order-block and FVG entries compared; writes `lab-ob.js` and `results/sweep_ob_fvg.md` |
+| `research --update` | **ICT research engine**: 10 ICT families (FVG, first FVG/Silver Bullet, inverse FVG, order block, breaker, sweep→MSS→FVG, OTE, Judas, CISD, BOS→FVG) × 6 sessions × 3 filters × 2 entries × 1/2/3/5/15m × MNQ/MGC, about 3,400 variants. Checks each out-of-sample and for false discoveries, and compares against a random-entry family. Keeps a forward-test watchlist and a daily history. Bars accumulate in `data/store/` so history grows past Yahoo's 30/60-day limit. Writes `lab-research.js` and `results/research/` |
 | `sweep` | Grid search for the core playbook's settings; picks on in-sample, reports **out-of-sample** so you can see what survives |
 | `concepts` | Lists the concept database |
 | `discover` | Searches YouTube (free Data API key) for new concepts and filters out gurus; writes `data/discovered.json` for review |
 
 Useful flags: `--be 1` (move stop to break-even at 1R), `--slippage 2`,
 `--max-trades 1`, `--strategies lsrb_fvg turtle_soup`, `--param wick_ratio=0.5`.
+
+## Daily research run
+
+`python lab.py research --update` is designed to run once a day after the US close:
+
+1. Download the newest 1/2/5/15m bars and merge them into `data/store/` (one gzip file per month).
+2. Re-test every variant on the longer history.
+3. Score the watchlist (variants that passed every check on an earlier day) **only on bars that arrived after they were picked**. That forward test is the only result that can't be curve-fitted.
+4. Append a line to `results/research/history.csv`.
 
 ## The concepts
 

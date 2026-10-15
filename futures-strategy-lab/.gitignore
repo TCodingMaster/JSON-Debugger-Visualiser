@@ -3,3 +3,4 @@ __pycache__/
 results/trades_*.csv
 results/lab-data.json
 data/discovered.json
+results/research/all_variants.csv
