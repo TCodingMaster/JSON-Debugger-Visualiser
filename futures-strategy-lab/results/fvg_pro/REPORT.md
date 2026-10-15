@@ -56,3 +56,23 @@ numbers that came up during development came from fitting to noise and disappear
 * Look-ahead test: cutting off future bars never changes a past signal.
 
 *Hypothetical results on about 50 sessions. Not financial advice.*
+
+## Update: 1.5R target and the MNQ 15m setup indicator
+
+Same locked rules, target changed from 2R to 1.5R (nothing else re-tuned):
+
+| | Trades | Win rate | Avg per trade | Out-of-sample |
+|---|---|---|---|---|
+| All 10 market × timeframe sets | 484 | 49.8 % | +0.22R | — |
+| **MNQ 15m** | 34 | **67.6 %** (95 % range 51–81 %) | **+0.68R** | 13 trades, 69 % |
+| MNQ 2m | 52 | 55.8 % | +0.37R | 64 % |
+| MGC 5m | 72 | 52.8 % | +0.30R | 55 % |
+
+On MNQ 15m the sessions matter: Asia 71 % (17 trades), London 60 % (20), NY AM 50 % (16), all
+sessions 49 % (69). MNQ 15m was singled out after seeing the results, and 34 trades is a small
+sample, so the daily forward test decides whether it holds.
+
+`pine/fvg_pro_setups_indicator.pine` draws these setups on the chart (BOS, FVG box, limit entry,
+stop, 1.5R target), plays each one out virtually with a running win-rate table, and sends alerts.
+Its fill-bar handling is simpler than the backtester's, so its table is a close guide; the Python lab
+and the Pine strategy remain the reference.
