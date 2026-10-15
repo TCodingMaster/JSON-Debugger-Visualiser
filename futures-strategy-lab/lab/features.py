@@ -158,8 +158,11 @@ def build(df: pd.DataFrame, tick: float) -> Features:
             pvah[s:e], pval[s:e], ppoc[s:e] = prev[2], prev[3], prev[4]
         after_open = m >= RTH_OPEN
         if on.any():
-            onh[s:e][after_open] = h[s:e][on].max()
-            onl[s:e][after_open] = l[s:e][on].min()
+            # known only once the overnight session has ended (09:30 → 18:00);
+            # the 18:00-24:00 bars at the start of the Globex day must not see it
+            known_on = after_open & (m < 18 * 60)
+            onh[s:e][known_on] = h[s:e][on].max()
+            onl[s:e][known_on] = l[s:e][on].min()
         asia = (m >= 20 * 60)
         if asia.any():
             known = (m < 18 * 60)

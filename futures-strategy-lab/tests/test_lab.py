@@ -298,3 +298,17 @@ def test_smc_no_lookahead():
                 a = [k(s) for s in smc.generate(c1, inst, lq, st, en) if s.bar < cut - 1]
                 b = [k(s) for s in smc.generate(c2, inst, lq, st, en) if s.bar < cut - 1]
                 assert a == b, (lq, st, en)
+
+
+@pytest.mark.parametrize("cut_frac", [0.31, 0.47, 0.63, 0.82])
+def test_features_never_use_future_bars(cut_frac):
+    """Every per-bar feature computed on truncated data must equal the same
+    feature computed on the full data, for all bars before the cut."""
+    df = data.synthetic("MNQ", days=8, seed=13)
+    full = features.build(df, 0.25)
+    cut = int(len(df) * cut_frac)
+    part = features.build(df.iloc[:cut], 0.25)
+    for name in ("atr", "ema20", "pdh", "pdl", "onh", "onl", "asia_h", "asia_l", "london_h", "london_l",
+                 "or_h", "or_l", "rth_open", "rth_hi_sofar", "rth_lo_sofar", "vwap", "vwap_sd", "pvah", "pval", "ppoc"):
+        a, b = getattr(full, name)[:cut], getattr(part, name)
+        assert np.allclose(a, b, equal_nan=True), name
