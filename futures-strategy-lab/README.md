@@ -45,6 +45,7 @@ dashboard shows a warning banner for them.
 | Command | What it does |
 |---|---|
 | `backtest` | Runs every concept × symbol, writes `lab-data.js` (for mock.html), `results/summary.md` and one trade-list CSV per run |
+| `components` | Tests liquidity sweep (S), rejection block (R) and FVG respected (F) **alone and in every combination**, with no trader's rules, on 2m/5m/15m against a random-entry control; writes `lab-concepts.js` (the "Concepts only" section of mock.html) and `results/concepts_only.md` |
 | `sweep` | Grid search for the core playbook's settings; picks on in-sample, reports **out-of-sample** so you can see what survives |
 | `concepts` | Lists the concept database |
 | `discover` | Searches YouTube (free Data API key) for new concepts and filters out gurus; writes `data/discovered.json` for review |

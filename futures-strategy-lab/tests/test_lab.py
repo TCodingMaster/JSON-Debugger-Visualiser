@@ -191,3 +191,23 @@ def test_losing_strategy_capped_below_untested():
          "oos": {"trades": 60, "win_rate": 0.25, "expectancy_r": -0.3}}
     s = scoring.score_concept(c, {"MNQ": m}, report.GOALS)
     assert not s["provisional"] and s["total"] <= scoring.LOSING_CAP
+
+
+def test_components_full_combo_matches_core_playbook():
+    from lab import components
+    df = data.synthetic("MNQ", days=40, seed=5)
+    inst = data.get_instrument("MNQ")
+    f = features.build(df, inst.tick)
+    win = [("09:30", "11:30")]
+    a = components.generate("SRF", f, inst, win)
+    b = strategies.generate("lsrb_fvg", f, inst, {"windows": win})
+    key = lambda s: (s.bar, s.side, s.entry, s.stop, s.invalidate)  # noqa: E731
+    assert [key(s) for s in a] == [key(s) for s in b] and len(a) > 0
+    for combo in components.COMBOS:
+        components.generate(combo, f, inst, win)  # every combination runs
+
+
+def test_wilson_interval():
+    from lab import components
+    lo, hi = components.wilson(6, 10)
+    assert 0.3 < lo < 0.6 < hi < 0.9
