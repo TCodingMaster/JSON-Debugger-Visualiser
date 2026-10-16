@@ -36,3 +36,21 @@ min FVG 0.3 ATR, edge entry, 2R, 1 trade/day, no EMA.
 Monthly R: 25-09 +8.7, 25-10 −1.1, 25-11 +8.9, 25-12 +1.9, 26-01 −3.1, 26-02 −8.1, 26-03 +7.0,
 26-04 +2.9, 26-05 +1.9, 26-06 −3.1, 26-07 +1.8, 26-08 +5.4, 26-09 +1.9, 26-10 +2.0.
 Same rules at 1.5R: 46 % WR, +0.14R; at 2.5R: 41 % WR, +0.39R.
+
+## "Respected FVG" confirmation entry (user's definition), 1 year MNQ 15m, 2R
+
+Rule (`lab/fvg_respect.py`): after BOS + FVG, the first candle that trades into the gap must close back
+outside it as a hammer (rejection wick ≥ 50 % of range) or doji (body ≤ 25 %); enter next bar.
+
+| London, min FVG 0.3 | Trades | WR | Exp. | PF |
+|---|---|---|---|---|
+| Current: limit on FVG edge | 102 | 43 % | +0.26R | 1.65 |
+| Hammer/doji respect, market entry, stop beyond FVG | 31 | 19 % | −0.44R | 0.41 |
+| same, swing stop | 18 | 28 % | −0.25R | 0.55 |
+| close-back only (no candle shape) | 70 | 36 % | +0.04R | 0.98 |
+| touch within 0.25 ATR | 35 | 29 % | −0.19R | 0.59 |
+| respect, then limit back at the edge | 25 | 36 % | +0.04R | 0.87 |
+
+Grid of 432 variants (sessions, wick size, first-touch only, stop type, RR): average −0.03R, IS→OOS
+correlation 0.03. Waiting for a rejection candle lowers win rate: the best FVG trades touch the gap
+and leave without a hammer, and a hammer at the gap is often followed by a deeper move.
