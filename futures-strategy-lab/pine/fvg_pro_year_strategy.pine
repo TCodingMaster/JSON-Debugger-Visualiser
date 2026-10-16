@@ -15,7 +15,19 @@
 //   izbor na sep 2025 – mar 2026: 54 tr., 43 %, +0.26R
 //   preverjeno na apr – okt 2026 (nevideno): 48 tr., 44 %, +0.27R
 //   pravi MNQ futures (Yahoo, zadnjih ~70 dni): 17 tr., 53 %, +0.54R
-// NAČIN IZHODA (privzeto "Delni TP + BE + čas", za ~60 % WR):
+// POSODOBITEV (raziskava 10 agentov, 1 leto, izbor na sep–mar, test na apr–okt,
+// neodvisno preverjeno = "trustworthy"): ista pravila na DVEH trgih, vsak v svoji seji,
+// TP 2.5R, fiksni TP:
+//   MNQ 15m London 02:00–05:00 NY: 102 tr., 41 % WR, +0.39R, PF 1.81, +$13.408
+//   MGC 15m COMEX odprtje 08:20–10:30 NY: 78 tr., 53 % WR, +0.26R, PF 1.75, +$4.300
+//   SKUPAJ: 180 tr., 46 % WR, +0.34R, PF 1.80, +$17.708, max DD $2.871,
+//   11/14 mesecev v plusu (izbor PF 1.96 / nevideno PF 1.66). Vseh 12 sosednjih
+//   nastavitev (min FVG 0.2–0.4 × RR 2–2.75) ostane pozitivnih v obeh polovicah.
+//   Zlato je bilo februarja 2026 +1.8R, ko je MNQ izgubil −7.7R.
+//   Uporaba: strategijo daj na MNQ1! 15m IN na MGC1! 15m (seja se izbere sama).
+//   Za MGC v Properties nastavi provizijo 0.82. Nafta (CL) ni robustna → ne uporabljaj.
+//   Pravi futures (zadnjih ~70 dni): MNQ +$4.970, MGC ≈ 0.
+// NAČIN IZHODA "Delni TP + BE + čas" (za ~60 % WR, manj dobička):
 //   polovica pozicije na +0.75R → SL preostanka na vstop (od naslednjega bara)
 //   → preostanek cilja 3R → vse zaprto po 8 barih (2 uri) od vstopa.
 //   1 leto: 102 poz., 62 % WR (izbor 63 %, nevideno 60 %), +0.15R, PF 1.54,
@@ -29,7 +41,7 @@
 // zadnjih 6 mesecev +0.48R → ni držala celo leto enakomerno.
 // Pri 2R je break-even WR 33 %. Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("FVG Pro Leto — MNQ 15m London (1/dan)", shorttitle = "FVG Pro L", overlay = true, pyramiding = 0,
+strategy("FVG Pro Leto — MNQ London + MGC COMEX 15m (2.5R, 1/dan)", shorttitle = "FVG Pro L", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false,
@@ -45,8 +57,8 @@ fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxva
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
 
 G2 = "Risk"
-rr         = input.float(2.0, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
-exitMode   = input.string("Delni TP + BE + čas (~60 % WR)", "Način izhoda", options = ["Delni TP + BE + čas (~60 % WR)", "Fiksni TP"], group = G2)
+rr         = input.float(2.5, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
+exitMode   = input.string("Fiksni TP", "Način izhoda", options = ["Delni TP + BE + čas (~60 % WR)", "Fiksni TP"], group = G2)
 tp1R       = input.float(0.75, "Delni: TP1 pri N R (polovica pozicije)", minval = 0.25, step = 0.05, group = G2)
 runR       = input.float(3.0, "Delni: cilj preostanka (R)", minval = 0.5, step = 0.25, group = G2)
 tStopBars  = input.int(8, "Delni: zapri po N barih od vstopa (0 = izklop)", minval = 0, group = G2)
@@ -75,6 +87,10 @@ emaLen  = input.int(50, "EMA dolžina", minval = 1, group = GE)
 emaRule = input.string("Naklon EMA", "Pravilo", options = ["Naklon EMA", "Cena nad/pod EMA", "Cena + naklon", "Križ hitre/počasne"], group = GE)
 emaFast = input.int(20, "Hitra EMA (za križ)", minval = 1, group = GE)
 showEma = input.bool(true, "Pokaži EMA", group = GE)
+
+GA = "Seja po simbolu"
+autoSess = input.bool(true, "Samodejno: MNQ = London 0200-0500, MGC = COMEX 0820-1030 (NY)", group = GA)
+mgcSess  = input.string("0820-1030", "Seja za MGC/GC", group = GA)
 
 GD = "Obdobje testa (isto nastavi v Strategy Tester)"
 startT = input.time(timestamp("2000-01-01T00:00:00"), "Začetek (novi trade-i od)", group = GD)
@@ -117,7 +133,8 @@ afterFlat(int m) => m >= flatMin and m < 18 * 60
 modOpen  = minuteOfDay(time)
 modClose = minuteOfDay(time_close)
 inRange  = time >= startT and time < endT
-inSess   = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))
+bool isGold = syminfo.root == "MGC" or syminfo.root == "GC"
+inSess   = autoSess and isGold ? inWindow(mgcSess, modOpen) : autoSess and syminfo.root != "MGC" and syminfo.root != "GC" and (syminfo.root == "MNQ" or syminfo.root == "NQ") ? inWindow("0200-0500", modOpen) : ((useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen)))
 
 qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : syminfo.root == "MGC" ? 1 : 1
 tick = syminfo.mintick

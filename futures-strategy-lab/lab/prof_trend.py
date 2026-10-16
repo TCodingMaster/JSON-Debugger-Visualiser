@@ -141,8 +141,28 @@ def build_market(sym: str, m1: pd.DataFrame | None = None) -> Market:
 # --------------------------------------------------------------------------- #
 # Signals
 # --------------------------------------------------------------------------- #
-def signals(mk: Market, trend: str, trig: str, window: str) -> list[dict]:
+def extras(mk: Market):
+    """Extra no-look-ahead arrays per 15m bar: session VWAP (RTH, from features.build)
+    and the 5-day slope sign of the daily EMA20 (known before the bar's Globex day)."""
+    if hasattr(mk, "vwap"):
+        return
+    from .features import build
+    f = build(mk.b15, mk.inst.tick)
+    mk.vwap = f.vwap
+    idx1 = mk.m1.index
+    rth = (mk.mod1 >= 9 * 60 + 30) & (mk.mod1 < 16 * 60)
+    dclose = pd.Series(mk.C[rth], index=mk.gday1[rth]).groupby(level=0).last()
+    dema = _ema(dclose.to_numpy(float), 20)
+    dsl = np.sign(np.r_[np.zeros(5), dema[5:] - dema[:-5]])
+    days = dclose.index.to_numpy()
+    pos = np.searchsorted(days, _gday(mk.b15.index), side="left") - 1
+    mk.dslope = np.where(pos >= 0, dsl[np.clip(pos, 0, None)], 0).astype(int)
+
+
+def signals(mk: Market, trend: str, trig: str, window: str, filt: str = "none") -> list[dict]:
     lo, hi = WINDOWS[mk.sym][window]
+    if filt != "none":
+        extras(mk)
     o, h, l, c, a, e = mk.o, mk.h, mk.l, mk.c, mk.atr, mk.ema20
     tick = mk.inst.tick
     tc = pd.DatetimeIndex(mk.tclose, tz="UTC").tz_convert("America/New_York")
@@ -161,6 +181,10 @@ def signals(mk: Market, trend: str, trig: str, window: str) -> list[dict]:
         if sd == 0 or a[k] <= 0:
             continue
         if sd * (c[k] - e[k]) <= 0:
+            continue
+        if "vwap" in filt and not (np.isfinite(mk.vwap[k]) and sd * (c[k] - mk.vwap[k]) > 0):
+            continue
+        if "dslope" in filt and mk.dslope[k] != sd:
             continue
         s = None
         if trig == "ema":
@@ -372,6 +396,99 @@ def grid(syms=("MNQ", "MGC", "MCL")):
     return res
 
 
+FILTS = ("none", "vwap", "dslope", "vwap+dslope")
+EXITS2 = ("rr2", "rr3", "ch2", "ch3")
+
+
+def stage2(syms=("MNQ", "MGC")):
+    res = []
+    for sym in syms:
+        mk = build_market(sym)
+        for filt, trig, win in itertools.product(FILTS, ("pbb", "ema"), WINS):
+            sg = signals(mk, "d20", trig, win, filt)
+            for ex, mx in itertools.product(EXITS2, (1, 2)):
+                ev = evaluate(simulate(mk, sg, ex, max_per_day=mx))
+                cfg = dict(sym=sym, trend="d20", trig=trig, win=win, exit=ex, filt=filt, maxday=mx)
+                res.append(dict(cfg=cfg, **ev))
+                print(sym, filt, trig, win, ex, mx, "| IS", fmt(ev["IS"]), "| OOS", fmt(ev["OOS"]), "|", ev["pos"], flush=True)
+    (OUT / "trend_stage2.json").write_text(json.dumps(res, indent=1, default=str))
+    return res
+
+
+CANDIDATES = {
+    # IS-selected (highest IS t-stat over the 128 stage-2 MNQ configs)
+    "is_pick": dict(trend="d20", trig="pbb", win="am", filt="none", exit="rr2", maxday=2),
+    # best IS-ranked of the trailing-exit 'none' family (IS PF 1.81, best IS net/DD)
+    "is_pick_trail": dict(trend="d20", trig="pbb", win="am", filt="none", exit="ch3", maxday=2),
+    # post-hoc candidate: same rule + close beyond session VWAP (not IS-selected)
+    "vwap": dict(trend="d20", trig="pbb", win="day", filt="vwap", exit="ch2", maxday=2),
+}
+
+
+def run_cfg(mk, cfg, slip=1):
+    sg = signals(mk, cfg["trend"], cfg["trig"], cfg["win"], cfg.get("filt", "none"))
+    return simulate(mk, sg, cfg["exit"], slip_ticks=slip, max_per_day=cfg.get("maxday", 1))
+
+
+def r_pf(tr):
+    r = np.array([t["r"] for t in tr])
+    return round(float(r[r > 0].sum() / -r[r < 0].sum()), 2) if (r < 0).any() else 99
+
+
+def final():
+    from . import research
+    m1 = pd.read_pickle(P + FILES["MNQ"])
+    mk = build_market("MNQ", m1)
+    m5 = data.resample(m1, "5min")
+    mk5 = build_market("MNQ", m5)
+    out = {}
+    for name, cfg in CANDIDATES.items():
+        tr = run_cfg(mk, cfg)
+        ev = evaluate(tr)
+        rec = dict(cfg=cfg, **ev, r_pf=r_pf(tr), IS_r_pf=r_pf(split(tr)[0]), OOS_r_pf=r_pf(split(tr)[1]))
+        print(f"== {name} {cfg}")
+        for part in ("IS", "OOS", "full"):
+            print(f"  {part:4} {fmt(ev[part])}")
+        print("  months", ev["months"], f"{ev['pos']}/{ev['nmonths']}", "R-PF", rec["r_pf"])
+        for sd in (1, -1):
+            x = [t for t in tr if t["side"] == sd]
+            a, b = split(x)
+            print(f"  side {sd:+d} IS {fmt(stats(a))} | OOS {fmt(stats(b))}")
+        ev2 = evaluate(run_cfg(mk, cfg, slip=2))
+        rec["slip2"] = ev2
+        print(f"  slip2 IS {fmt(ev2['IS'])} | OOS {fmt(ev2['OOS'])} | {ev2['pos']}/14")
+        ev5 = evaluate(run_cfg(mk5, cfg))
+        rec["base5m"] = ev5
+        print(f"  5m-base IS {fmt(ev5['IS'])} | OOS {fmt(ev5['OOS'])} | {ev5['pos']}/14")
+        neigh = []
+        for k, vals in (("exit", ("rr2", "rr2.5", "rr3", "ch1.5", "ch2", "ch2.5", "ch3")), ("win", ("am", "day")),
+                        ("maxday", (1, 2, 3))):
+            for v in vals:
+                c2 = dict(cfg, **{k: v})
+                if c2 == cfg:
+                    continue
+                e = evaluate(run_cfg(mk, c2))
+                neigh.append(dict(change=f"{k}={v}", IS=e["IS"], OOS=e["OOS"], pos=e["pos"]))
+                print(f"  neigh {k}={v}: IS PF {e['IS']['pf']} exp {e['IS']['exp']:+.3f} | OOS PF {e['OOS']['pf']} exp {e['OOS']['exp']:+.3f} n {e['full']['n']} pos {e['pos']}")
+        rec["neighbours"] = neigh
+        out[name] = rec
+    # real futures check on 5m bars (both sources on 5m base, same window)
+    st = research.load_store(["MNQ"], ["5m"])
+    real = st[("MNQ", "5m")].copy()
+    real.index = real.index.as_unit("ns")
+    mkr = build_market("MNQ", real)
+    t0 = real.index[0] + pd.Timedelta(days=28)  # skip the daily-EMA warm-up
+    duk = m5[(m5.index >= real.index[0]) & (m5.index <= real.index[-1])].copy()
+    duk.index = duk.index.as_unit("ns")
+    mkd = build_market("MNQ", duk)
+    for name, cfg in CANDIDATES.items():
+        a = [t for t in run_cfg(mkr, cfg) if t["entry_time"] >= t0]
+        b = [t for t in run_cfg(mkd, cfg) if t["entry_time"] >= t0]
+        out[name]["real"] = dict(real=stats(a), duka_same=stats(b), from_=str(t0))
+        print(f"real {name} from {t0.date()}: REAL {fmt(stats(a))} | DUKA {fmt(stats(b))}")
+    (OUT / "trend.json").write_text(json.dumps(out, indent=1, default=str))
+
+
 def truncation_check(sym="MNQ", cuts=(0.35, 0.6, 0.85)):
     full_m1 = pd.read_pickle(P + FILES[sym])
     full_m1.index = full_m1.index.as_unit("ns")
@@ -398,5 +515,9 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "grid"
     if cmd == "grid":
         grid(tuple(sys.argv[2:]) or ("MNQ", "MGC", "MCL"))
+    elif cmd == "stage2":
+        stage2(tuple(sys.argv[2:]) or ("MNQ", "MGC"))
+    elif cmd == "final":
+        final()
     elif cmd == "check":
         truncation_check()
