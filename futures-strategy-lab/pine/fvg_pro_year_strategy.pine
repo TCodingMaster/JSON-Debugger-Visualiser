@@ -15,11 +15,21 @@
 //   izbor na sep 2025 – mar 2026: 54 tr., 43 %, +0.26R
 //   preverjeno na apr – okt 2026 (nevideno): 48 tr., 44 %, +0.27R
 //   pravi MNQ futures (Yahoo, zadnjih ~70 dni): 17 tr., 53 %, +0.54R
+// NAČIN IZHODA (privzeto "Delni TP + BE + čas", za ~60 % WR):
+//   polovica pozicije na +0.75R → SL preostanka na vstop (od naslednjega bara)
+//   → preostanek cilja 3R → vse zaprto po 8 barih (2 uri) od vstopa.
+//   1 leto: 102 poz., 62 % WR (izbor 63 %, nevideno 60 %), +0.15R, PF 1.54,
+//   +$3.717, max DD $1.057, 11/14 mesecev v plusu. Neodvisni preverjevalec:
+//   številke se ponovijo, brez look-ahead; sosednje nastavitve dajo 55–62 % WR
+//   → realno pričakuj ~55–60 %. Pravi MNQ zadnjih 70 dni: 53 %, +$640.
+//   Delni izhod potrebuje vsaj 2 pogodbi. Webhook deluje samo v načinu Fiksni TP.
+//   Način "Fiksni TP" (2R) zasluži ~3× več (+$10.460), a z 43 % WR.
+//   List of Trades pokaže delni izhod kot 2 vrstici; tabela šteje pozicije.
 // Za primerjavo, Kvaliteta (Asia+London) na istem letu: prvih 7 mesecev ≈ 0R,
 // zadnjih 6 mesecev +0.48R → ni držala celo leto enakomerno.
 // Pri 2R je break-even WR 33 %. Hipotetični rezultati, ni finančni nasvet.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("FVG Pro Leto — MNQ 15m London (2R, 1/dan)", shorttitle = "FVG Pro L", overlay = true, pyramiding = 0,
+strategy("FVG Pro Leto — MNQ 15m London (1/dan)", shorttitle = "FVG Pro L", overlay = true, pyramiding = 0,
      initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
      process_orders_on_close = false, calc_on_every_tick = false,
@@ -35,7 +45,12 @@ fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxva
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
 
 G2 = "Risk"
-rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+rr         = input.float(2.0, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
+exitMode   = input.string("Delni TP + BE + čas (~60 % WR)", "Način izhoda", options = ["Delni TP + BE + čas (~60 % WR)", "Fiksni TP"], group = G2)
+tp1R       = input.float(0.75, "Delni: TP1 pri N R (polovica pozicije)", minval = 0.25, step = 0.05, group = G2)
+runR       = input.float(3.0, "Delni: cilj preostanka (R)", minval = 0.5, step = 0.25, group = G2)
+tStopBars  = input.int(8, "Delni: zapri po N barih od vstopa (0 = izklop)", minval = 0, group = G2)
+partialMode = exitMode != "Fiksni TP"
 bufTicks   = input.int(2, "Stop buffer (ticks)", minval = 0, group = G2)
 stopLook   = input.int(10, "Stop: lowest low from N bars before the BOS", minval = 1, maxval = 50, group = G2)
 expiryBars = input.int(20, "Cancel unfilled order after N bars", minval = 1, group = G2)
@@ -232,6 +247,8 @@ var float pendEntry = na
 var float pendStop  = na
 var float pendTgt   = na
 var float pendInval = na
+var float pendRun   = na
+var bool  beDone    = false
 var int   dayKey    = na
 var int   dayTrades = 0
 var int   lastEntries = 0
@@ -241,24 +258,37 @@ if na(dayKey) or curDay != dayKey
     dayKey := curDay
     dayTrades := 0
 
-// fills that happened on this bar
-entries = strategy.closedtrades + strategy.opentrades
-if entries > lastEntries
-    dayTrades += entries - lastEntries
+// fills that happened on this bar (one position can close in several pieces with the
+// partial exit, so positions are counted by their entry bar, not by closed trades)
+var int lastEB = -1
+var int lastClosed = 0
+var int posBar = na
+int newFills = 0
+if strategy.closedtrades > lastClosed
+    for k = lastClosed to strategy.closedtrades - 1
+        int eb = strategy.closedtrades.entry_bar_index(k)
+        if eb != lastEB
+            newFills += 1
+            lastEB := eb
+if strategy.opentrades > 0
+    int eb = strategy.opentrades.entry_bar_index(0)
+    if eb != lastEB
+        newFills += 1
+        lastEB := eb
+if newFills > 0
+    dayTrades += newFills
     pending := false
+    posBar := lastEB
 
-// ambiguous bars: stop AND target both inside one bar while the trade is live.
+// ambiguous bars: stop AND (first) target both inside one bar while the position is live.
 // Without lower-timeframe data nobody can know which came first, so such a
 // win is not counted in the conservative win rate.
-var array<bool> ambByTrade = array.new<bool>()
-var int lastClosed = 0
-while array.size(ambByTrade) < entries
-    array.push(ambByTrade, false)
-bool liveThisBar = strategy.position_size != 0 or entries > lastEntries or strategy.closedtrades > lastClosed
-if liveThisBar and entries > 0 and not na(pendStop) and high >= math.max(pendStop, pendTgt) and low <= math.min(pendStop, pendTgt)
-    array.set(ambByTrade, entries - 1, true)
+var array<int> ambEntryBars = array.new<int>()
+bool liveThisBar = strategy.position_size != 0 or newFills > 0 or strategy.closedtrades > lastClosed
+if liveThisBar and lastEB >= 0 and not na(pendStop) and high >= math.max(pendStop, pendTgt) and low <= math.min(pendStop, pendTgt)
+    if not array.includes(ambEntryBars, lastEB)
+        array.push(ambEntryBars, lastEB)
 lastClosed := strategy.closedtrades
-lastEntries := entries
 
 // pending order: invalidate on a close through the gap (only if not filled)
 if pending and strategy.position_size == 0
@@ -284,7 +314,19 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
         if trendOk and risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
             strategy.cancel_all()
             float tgt = entry + side * rr * risk
-            if side > 0
+            if partialMode
+                tgt := math.round_to_mintick(entry + side * tp1R * risk)
+                float run = math.round_to_mintick(entry + side * runR * risk)
+                if side > 0
+                    strategy.entry("FVG L", strategy.long, qty = qty, limit = entry)
+                    strategy.exit("TP1 L", "FVG L", qty_percent = 50, stop = st, limit = tgt, comment_profit = "TP1", comment_loss = "SL")
+                    strategy.exit("X L", "FVG L", stop = st, limit = run, comment_profit = "TP2", comment_loss = "SL")
+                else
+                    strategy.entry("FVG S", strategy.short, qty = qty, limit = entry)
+                    strategy.exit("TP1 S", "FVG S", qty_percent = 50, stop = st, limit = tgt, comment_profit = "TP1", comment_loss = "SL")
+                    strategy.exit("X S", "FVG S", stop = st, limit = run, comment_profit = "TP2", comment_loss = "SL")
+                pendRun := run
+            else if side > 0
                 strategy.entry("FVG L", strategy.long, qty = qty, limit = entry)
                 strategy.exit("X L", "FVG L", stop = st, limit = tgt)
             else
@@ -306,7 +348,7 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
                 line.new(bar_index, tgt, bar_index + 8, tgt, color = color.blue, style = line.style_dashed, width = 1)
 
 // webhook: the order that is left working after this bar (a replaced one is cancelled first)
-if useHook and placed
+if useHook and placed and not partialMode
     if hadPending
         alert(hookCancel(), alert.freq_once_per_bar_close)
     alert(hookEntry(pendSide, pendEntry, pendStop, pendTgt, qty), alert.freq_once_per_bar_close)
@@ -319,6 +361,21 @@ if pending and strategy.position_size == 0 and (bar_index + 1 - pendBar > expiry
     pending := false
     if useHook
         alert(hookCancel(), alert.freq_once_per_bar_close)
+
+// partial mode: after TP1 the rest goes to break-even (from the next bar);
+// time stop closes the position at the next bar's open once it is tStopBars old
+if newFills > 0
+    beDone := false
+if partialMode and strategy.position_size != 0
+    float ep = strategy.position_avg_price
+    if not beDone and math.abs(strategy.position_size) < qty
+        beDone := true
+        if strategy.position_size > 0
+            strategy.exit("X L", "FVG L", stop = ep, limit = pendRun, comment_profit = "TP2", comment_loss = "BE")
+        else
+            strategy.exit("X S", "FVG S", stop = ep, limit = pendRun, comment_profit = "TP2", comment_loss = "BE")
+    if tStopBars > 0 and not na(posBar) and bar_index - posBar >= tStopBars
+        strategy.close_all(comment = "Čas")
 
 // flat by the flatten time (fills at the next bar's open, like the Python engine)
 if strategy.position_size != 0 and (nextAfter or nextNewDay)
@@ -341,20 +398,31 @@ if showTable and barstate.islast
     int amb = 0
     float gw = 0.0
     float gl = 0.0
-    if strategy.closedtrades > 0
-        for k = 0 to strategy.closedtrades - 1
-            int et = strategy.closedtrades.entry_time(k)
-            if et >= startT and et < endT
-                float p = strategy.closedtrades.profit(k)
-                bool a = k < array.size(ambByTrade) and array.get(ambByTrade, k)
+    // one row per position (a partial exit shows as 2 rows in List of Trades)
+    float acc = 0.0
+    int curEB = -1
+    bool curIn = false
+    int nc = strategy.closedtrades
+    if nc > 0
+        for k = 0 to nc
+            int eb = k < nc ? strategy.closedtrades.entry_bar_index(k) : -2
+            if eb != curEB and curEB != -1 and curIn
+                bool a = array.includes(ambEntryBars, curEB)
                 n += 1
                 amb += a ? 1 : 0
-                if p > 0
+                if acc > 0
                     wins += 1
-                    gw += p
+                    gw += acc
                     ambWins += a ? 1 : 0
                 else
-                    gl -= p
+                    gl -= acc
+            if k < nc and eb != curEB
+                acc := 0.0
+                curEB := eb
+                int et = strategy.closedtrades.entry_time(k)
+                curIn := et >= startT and et < endT
+            if k < nc
+                acc += strategy.closedtrades.profit(k)
     float wr = n > 0 ? 100.0 * wins / n : 0.0
     float wrC = n > 0 ? 100.0 * (wins - ambWins) / n : 0.0
     float avgW = wins > 0 ? gw / wins : 0.0
@@ -363,7 +431,7 @@ if showTable and barstate.islast
     table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period, text_color = color.white)
     table.cell(tb, 0, 1, "Obdobje", text_color = color.white)
     table.cell(tb, 1, 1, str.format("{0,date,yyyy-MM-dd} → {1,date,yyyy-MM-dd}", math.max(startT, firstBarTime), math.min(endT, time)), text_color = color.white)
-    table.cell(tb, 0, 2, "Trades (zaprti)", text_color = color.white)
+    table.cell(tb, 0, 2, "Pozicije (zaprte)", text_color = color.white)
     table.cell(tb, 1, 2, str.tostring(n) + (strategy.opentrades > 0 ? " + 1 odprt" : ""), text_color = color.white)
     table.cell(tb, 0, 3, "Win rate", text_color = color.white)
     table.cell(tb, 1, 3, str.tostring(wr, "#.0") + "%  (goal " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
