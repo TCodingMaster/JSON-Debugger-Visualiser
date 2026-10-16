@@ -14,3 +14,12 @@ tested on Apr–Oct; costs included; each result re-implemented by a skeptic age
 Recommendation: FVG Pro Leto on MNQ (London) + MGC (COMEX open) at 2.5R — `pine/fvg_pro_year_strategy.pine`
 picks the session from the chart symbol. Crude oil was not robust in any scheme.
 Per-direction reports: `results/profit/*.md`; code: `lab/prof_*.py`.
+
+## Win-rate filter "don't chase" (added to FVG Pro Leto, default 1.0 ATR)
+
+Skip a setup when the signal close is already more than N × ATR past the FVG entry edge.
+MNQ London 2.5R, one year: 102 → 70 trades, WR 41 → 46 %, PF 1.81 → 2.40, net +$13,408 → +$14,307,
+max DD $2,846 → $1,431; IS PF 3.28 / OOS 1.92. Improves every RR (2, 2.5, 3R) and every threshold 0.7–1.2
+in both halves. MGC COMEX 2.5R: PF 1.75 → 2.13 (39 trades). Real MNQ (~70 days, 2.5R): 11 trades, PF 2.89.
+Caveat: the filter was found by the earlier "filters" research on Asia+London; on Leto it was checked, not selected.
+Other WR filters: skipping the top 20 % volatility regime (datr_pct ≤ 0.8) also helps (PF 2.91) but leaves 53 trades.

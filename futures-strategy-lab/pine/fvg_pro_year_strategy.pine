@@ -27,6 +27,12 @@
 //   Uporaba: strategijo daj na MNQ1! 15m IN na MGC1! 15m (seja se izbere sama).
 //   Za MGC v Properties nastavi provizijo 0.82. Nafta (CL) ni robustna → ne uporabljaj.
 //   Pravi futures (zadnjih ~70 dni): MNQ +$4.970, MGC ≈ 0.
+// FILTER "NE LOVI CENE" (privzeto 1.0 ATR): setup se preskoči, če je cena ob signalu
+// že več kot 1 × ATR stran od vstopa na robu FVG (pozen, iztegnjen vstop).
+//   MNQ London 2.5R, 1 leto: 102 → 70 tr., WR 41 → 46 %, PF 1.81 → 2.40,
+//   +$13.408 → +$14.307, max DD $2.846 → $1.431 (izbor PF 3.28 / nevideno 1.92).
+//   Pomaga pri vseh RR (2R, 2.5R, 3R) in pri pragovih 0.7–1.2 v obeh polovicah leta.
+//   MGC COMEX 2.5R: WR 53 → 54 %, PF 1.75 → 2.13 (manj trade-ov: 78 → 39).
 // NAČIN IZHODA "Delni TP + BE + čas" (za ~60 % WR, manj dobička):
 //   polovica pozicije na +0.75R → SL preostanka na vstop (od naslednjega bara)
 //   → preostanek cilja 3R → vse zaprto po 8 barih (2 uri) od vstopa.
@@ -55,6 +61,7 @@ minFvgAtr  = input.float(0.30, "Min FVG size × ATR(14)", minval = 0, step = 0.0
 fvgBefore  = input.int(3, "Look for FVG up to N bars before the BOS", minval = 0, maxval = 10, group = G1)
 fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxval = 10, group = G1)
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
+maxChase   = input.float(1.0, "Ne lovi cene: preskoči, če je cena že > N × ATR od vstopa (0 = izklop)", minval = 0, step = 0.1, group = G1)
 
 G2 = "Risk"
 rr         = input.float(2.5, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
@@ -327,6 +334,8 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
         float st  = array.get(setStop, i)
         bool trendOk = (not useTrend or trend * side > 0) and (not useEma or emaTrend == side)
         float entry = entryMode == "Edge" ? (side > 0 ? top : bot) : math.round_to_mintick((bot + top) / 2)
+        // "don't chase": the signal close must not already be far past the entry edge
+        trendOk := trendOk and (maxChase <= 0 or atr <= 0 or side * (close - entry) / atr <= maxChase)
         float risk = (entry - st) * side
         if trendOk and risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
             strategy.cancel_all()
