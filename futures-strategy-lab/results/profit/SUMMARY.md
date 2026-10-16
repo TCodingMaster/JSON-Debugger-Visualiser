@@ -23,3 +23,19 @@ max DD $2,846 → $1,431; IS PF 3.28 / OOS 1.92. Improves every RR (2, 2.5, 3R) 
 in both halves. MGC COMEX 2.5R: PF 1.75 → 2.13 (39 trades). Real MNQ (~70 days, 2.5R): 11 trades, PF 2.89.
 Caveat: the filter was found by the earlier "filters" research on Asia+London; on Leto it was checked, not selected.
 Other WR filters: skipping the top 20 % volatility regime (datr_pct ≤ 0.8) also helps (PF 2.91) but leaves 53 trades.
+
+## Losing streaks and large losses (MNQ London 2.5R + don't chase, 2 MNQ, one year)
+
+Longest losing streak: 6. The largest losses ($500–640) are ordinary −1R stops on wide-stop trades, not gaps
+or end-of-day exits. Wide-stop trades are profitable on average, so shrinking them costs money:
+
+| Rule | Net | PF | Max DD | Max loss |
+|---|---|---|---|---|
+| Fixed 2 MNQ (default) | $14,307 | 2.40 | $1,431 | $638 |
+| $ risk cap 600 (2→1 contract above) | $13,667 | 2.42 | $1,384 | $576 |
+| $ risk cap 400 | $11,120 | 2.29 | $1,384 | $360 |
+| 1 MNQ after 2 losses until a win | $11,927 | 2.31 | $1,172 | $638 |
+| Risk-based sizing $300/trade (1–4 MNQ) | $8,801 | 2.02 | $1,855 | $299 |
+| Pause after 3 losses | $9,962 | 2.05 | $1,551 | $638 |
+
+Both the cap and the half-size rule are optional inputs in the Pine strategy (off by default).
