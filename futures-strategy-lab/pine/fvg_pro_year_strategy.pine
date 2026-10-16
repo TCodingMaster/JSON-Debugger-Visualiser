@@ -33,6 +33,13 @@
 //   +$13.408 → +$14.307, max DD $2.846 → $1.431 (izbor PF 3.28 / nevideno 1.92).
 //   Pomaga pri vseh RR (2R, 2.5R, 3R) in pri pragovih 0.7–1.2 v obeh polovicah leta.
 //   MGC COMEX 2.5R: WR 53 → 54 %, PF 1.75 → 2.13 (manj trade-ov: 78 → 39).
+// PRIVZETO (izbira uporabnika, potrjeno v TradingView in Pythonu): delni izhod
+// TP1 = 1R (polovica), preostanek na BE → 3R, zaprto po 8 barih, "ne lovi cene" 1.0.
+//   TradingView Deep 365 dni (pravi CME, 2 MNQ): +$4.534, PF 2.17, max DD $797,
+//   60 % WR (vrstice), največja izguba $293.
+//   Python 1 leto: 70 poz., 67 % WR, +0.26R, PF 2.50, +$5.626, DD $583,
+//   najdaljši niz izgub 3, 11/14 mesecev; izbor PF 2.05 / nevideno PF 3.06.
+//   Fiksni 2.5R zasluži ~2.5× več (+$14.3k) z ~2.5× večjim DD in nizi do 6 izgub.
 // IZGUBE IN NIZI (1 leto, MNQ London 2.5R + ne lovi cene, 2 MNQ):
 //   najdaljši niz izgub 6; največja izguba $638 je navaden SL (−1R) pri trade-u s
 //   širokim SL, ne gap. Taki trade-i so v povprečju dobičkonosni, zato:
@@ -72,8 +79,8 @@ maxChase   = input.float(1.0, "Ne lovi cene: preskoči, če je cena že > N × A
 
 G2 = "Risk"
 rr         = input.float(2.5, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
-exitMode   = input.string("Fiksni TP", "Način izhoda", options = ["Delni TP + BE + čas (~60 % WR)", "Fiksni TP"], group = G2)
-tp1R       = input.float(0.75, "Delni: TP1 pri N R (polovica pozicije)", minval = 0.25, step = 0.05, group = G2)
+exitMode   = input.string("Delni TP + BE + čas (~60 % WR)", "Način izhoda", options = ["Delni TP + BE + čas (~60 % WR)", "Fiksni TP"], group = G2)
+tp1R       = input.float(1.0, "Delni: TP1 pri N R (polovica pozicije)", minval = 0.25, step = 0.05, group = G2)
 runR       = input.float(3.0, "Delni: cilj preostanka (R)", minval = 0.5, step = 0.25, group = G2)
 tStopBars  = input.int(8, "Delni: zapri po N barih od vstopa (0 = izklop)", minval = 0, group = G2)
 partialMode = exitMode != "Fiksni TP"
