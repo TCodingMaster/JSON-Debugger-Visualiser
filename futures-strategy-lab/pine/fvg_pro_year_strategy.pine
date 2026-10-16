@@ -40,6 +40,10 @@
 //   Python 1 leto: 70 poz., 67 % WR, +0.26R, PF 2.50, +$5.626, DD $583,
 //   najdaljši niz izgub 3, 11/14 mesecev; izbor PF 2.05 / nevideno PF 3.06.
 //   Fiksni 2.5R zasluži ~2.5× več (+$14.3k) z ~2.5× večjim DD in nizi do 6 izgub.
+// VEČ TRADE-OV (1 leto, delni izhod 1R/3R): na MNQ dodatne seje ne držijo kakovosti
+// (Asia: prva polovica leta PF 0.41; NY AM: PF 0.83). Najboljši dodatek je zlato:
+//   MGC COMEX 08:20–10:30 brez filtra "ne lovi cene": 78 tr., 62 % WR, PF 1.66 (izbor 1.54 / nevideno 1.91)
+//   MNQ London + MGC COMEX skupaj: 148 tr./leto (~3 na teden), 64 % WR, PF 2.05, +$8.459, DD $881.
 // IZGUBE IN NIZI (1 leto, MNQ London 2.5R + ne lovi cene, 2 MNQ):
 //   najdaljši niz izgub 6; največja izguba $638 je navaden SL (−1R) pri trade-u s
 //   širokim SL, ne gap. Taki trade-i so v povprečju dobičkonosni, zato:
@@ -76,6 +80,7 @@ fvgBefore  = input.int(3, "Look for FVG up to N bars before the BOS", minval = 0
 fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxval = 10, group = G1)
 entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
 maxChase   = input.float(1.0, "Ne lovi cene: preskoči, če je cena že > N × ATR od vstopa (0 = izklop)", minval = 0, step = 0.1, group = G1)
+chaseGold  = input.bool(false, "Ne lovi cene tudi na zlatu (MGC) — na zlatu prepolovi št. trade-ov", group = G1)
 
 G2 = "Risk"
 rr         = input.float(2.5, "Reward : risk (način Fiksni TP)", minval = 0.5, step = 0.25, group = G2)
@@ -359,7 +364,7 @@ if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not af
         bool trendOk = (not useTrend or trend * side > 0) and (not useEma or emaTrend == side)
         float entry = entryMode == "Edge" ? (side > 0 ? top : bot) : math.round_to_mintick((bot + top) / 2)
         // "don't chase": the signal close must not already be far past the entry edge
-        trendOk := trendOk and (maxChase <= 0 or atr <= 0 or side * (close - entry) / atr <= maxChase)
+        trendOk := trendOk and (maxChase <= 0 or atr <= 0 or (isGold and not chaseGold) or side * (close - entry) / atr <= maxChase)
         // position size for this trade: half after 2 straight losses, capped by the $ risk limit
         int q = halfAfter2 and lossStreak >= 2 ? math.max(1, int(qty / 2)) : qty
         float riskUsd1 = math.abs(entry - st) * syminfo.pointvalue
