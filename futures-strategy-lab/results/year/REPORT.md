@@ -54,3 +54,20 @@ outside it as a hammer (rejection wick ≥ 50 % of range) or doji (body ≤ 25 %
 Grid of 432 variants (sessions, wick size, first-touch only, stop type, RR): average −0.03R, IS→OOS
 correlation 0.03. Waiting for a rejection candle lowers win rate: the best FVG trades touch the gap
 and leave without a hammer, and a hammer at the gap is often followed by a deeper move.
+
+## Gold and crude oil over one year (Dukascopy XAUUSD / WTI CFD, 1 MGC / 1 CL)
+
+Proxy check vs Yahoo futures: gold 15m return corr 0.99; WTI 0.93 (WTI is missing most of June–July 2026,
+the Dukascopy feed rate-limited the download).
+
+| Market | Strategy | Trades | WR | Exp. | IS / OOS exp. |
+|---|---|---|---|---|---|
+| MGC 15m | Quality A+L 1.5R | 159 | 42 % | +0.02R | +0.04 / +0.00 |
+| MGC 5m | Quality A+L 2R | 260 | 40 % | +0.16R | +0.13 / +0.19 |
+| MGC 15m | Leto London 2R | 49 | 29 % | −0.21R | −0.44 / +0.09 |
+| CL 5m | Quality A+L 1.5R | 221 | 43 % | +0.00R | −0.06 / +0.10 |
+| CL 5m | Quality A+L 2R | 221 | 35 % | −0.02R | −0.12 / +0.14 |
+| CL 15m | Quality A+L 2R EMA50 | 124 | 33 % | −0.07R | +0.06 / −0.32 |
+
+Over a full year the FVG strategies are about break-even on gold and crude; the strong CL 5m run seen
+in TradingView (Aug 24 – Oct 16) was the good part of the year. Only MNQ 15m shows a steady edge.
