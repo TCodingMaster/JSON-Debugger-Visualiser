@@ -1,0 +1,488 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// MGC 3m — External Liquidity Sweep → MSS + displacement → FVG (uporabnikov model)
+// Python: lab/external_sweep.py (enaka pravila), poročilo: results/daily/external.md
+//
+// Pravila (short; long zrcalno), vse na ZAPRTJU bara, naročilo dela od naslednjega bara:
+//  1. External likvidnost: PDH/PDL, Asia H/L (20:00–24:00, znano od 00:00),
+//     London H/L (02:00–05:00, znano od 05:00), overnight H/L (18:00–09:30, znano od 09:30),
+//     equal highs/lows na robu range-a (2 pivota ±0.1 ATR, najvišja v zadnjih 32 barih),
+//     high/low zadnjih 40 barov (~2 h).
+//  2. Sweep: prvi bar dneva, ki gre čez level, v oknu 02:00–09:30 ali 10:00–15:00 NY
+//     (NY open 09:30–10:00 izpuščen). Vsak level enkrat na dan.
+//  3. V 15 barih: MSS = zaprtje pod najnižjim lowom 10 barov pred sweepom
+//     + displacement sveča (body ≥ 1.5 × ATR) med sweepom in MSS.
+//  4. Prvi FVG te poteze (do 4 bare po MSS, ≥ 0.15 ATR) → limit na SREDINI FVG (CE),
+//     SL = ekstrem sweepa + 2 ticka, preklic ob zaprtju čez ekstrem ali po 20 barih.
+//  5. Izhod: polovica na 1R → SL na vstop → preostanek 3R; zapri po 40 barih (2 h),
+//     vse zaprto ob 15:55 NY. Max 2 trade-a na dan.
+//
+// Backtest Python (Dukascopy XAUUSD 1m → 3m, 1. 9. 2025 – 14. 10. 2026, 2 MGC,
+// provizija $0.82/stran, 1 tick slippage):
+//   101 trade-ov, 64 % WR, +0.31R, PF 2.77, +$7.800, 12/14 mesecev v plusu
+//   izbor (sep–mar): 60 % WR, PF 1.99   |   nevideno (apr–okt): 71 % WR, PF 4.48
+//   POZOR: s 3m bari zamaknjenimi za 1–2 min je WR ~50 %, PF ~1.2–1.3 → najprej forward test.
+//   Na MNQ ta model NE deluje (PF 0.6–0.9) → samo zlato.
+// Uporaba: MGC1! (ali GC1!) 3m, Properties → 2 pogodbi (privzeto).
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("MGC External Sweep 3m (MSS + FVG, 1R/3R, 2/dan)", shorttitle = "ExtSweep", overlay = true, pyramiding = 0,
+     initial_capital = 25000, default_qty_type = strategy.fixed, default_qty_value = 2,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.82, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false,
+     use_bar_magnifier = true, backtest_fill_limits_assumption = 1,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300, max_bars_back = 400)
+
+G1 = "Setup"
+useEq     = input.bool(true, "Equal highs/lows", group = G1)
+useRng    = input.bool(true, "High/low zadnjih N barov", inline = "r", group = G1)
+rngBars   = input.int(40, "", minval = 5, inline = "r", group = G1)
+lookBars  = input.int(15, "MSS mora priti v N barih po sweepu", minval = 1, group = G1)
+mssN      = input.int(10, "MSS: zaprtje čez ekstrem N barov pred sweepom", minval = 1, group = G1)
+dispAtr   = input.float(1.5, "Displacement: body ≥ N × ATR", minval = 0, step = 0.1, group = G1)
+postBars  = input.int(4, "FVG do N barov po MSS", minval = 0, group = G1)
+minFvgAtr = input.float(0.15, "Min FVG × ATR", minval = 0, step = 0.05, group = G1)
+entryMode = input.string("CE (50%)", "Vstop v FVG", options = ["CE (50%)", "Edge"], group = G1)
+eqTol     = input.float(0.1, "Equal H/L toleranca × ATR", minval = 0, step = 0.05, group = G1)
+extBars   = input.int(32, "Equal H/L: najvišji/najnižji v N barih pred prvim pivotom", minval = 0, group = G1)
+
+G2 = "Risk / izhod"
+tp1R       = input.float(1.0, "TP1 (polovica) pri N R", minval = 0.25, step = 0.25, group = G2)
+runR       = input.float(3.0, "Cilj preostanka (R)", minval = 0.5, step = 0.25, group = G2)
+tStopBars  = input.int(40, "Zapri po N barih od vstopa (0 = izklop)", minval = 0, group = G2)
+bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
+expiryBars = input.int(20, "Preklic neizpolnjenega naročila po N barih", minval = 1, group = G2)
+minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
+maxTrades  = input.int(2, "Max trade-ov na Globex dan", minval = 1, group = G2)
+qty        = input.int(2, "Pogodbe (2 → delni izhod 1 + 1)", minval = 1, group = G2)
+
+G3 = "Seje (New York, HHMM-HHMM)"
+win1   = input.string("0200-0930", "Okno 1", group = G3)
+win2   = input.string("1000-1500", "Okno 2 (NY open izpuščen)", group = G3)
+flatHM = input.string("1555", "Zapri vse ob (HHMM)", group = G3)
+
+GD = "Obdobje testa"
+startT = input.time(timestamp("2000-01-01T00:00:00"), "Začetek", group = GD)
+endT   = input.time(timestamp("2100-01-01T00:00:00"), "Konec", group = GD)
+
+G4 = "Prikaz"
+showLv    = input.bool(true, "Pokaži levele (PDH/PDL, Asia, London, ON)", group = G4)
+showZones = input.bool(true, "Pokaži FVG, vstop, SL, TP", group = G4)
+showTable = input.bool(true, "Tabela statistike", group = G4)
+
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+
+m        = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+flatMin  = hm(flatHM, 0)
+afterFlat(int mm) => mm >= flatMin and mm < 18 * 60
+inWin    = inWindow(win1, m) or inWindow(win2, m)
+inRange  = time >= startT and time < endT
+tick     = syminfo.mintick
+buf      = bufTicks * tick
+atr      = ta.atr(14)
+curDay   = gday(time)
+newDay   = curDay != curDay[1]
+
+// ── Session levels (same definitions as lab/features.py) ────────────────────
+var float pdh = na
+var float pdl = na
+var float rthH = na
+var float rthL = na
+var float asiaAccH = na
+var float asiaAccL = na
+var float lonAccH = na
+var float lonAccL = na
+var float onAccH = na
+var float onAccL = na
+if newDay
+    if not na(rthH)
+        pdh := rthH
+        pdl := rthL
+    rthH := na
+    rthL := na
+    asiaAccH := na
+    asiaAccL := na
+    lonAccH := na
+    lonAccL := na
+    onAccH := na
+    onAccL := na
+bool isRth = m >= 570 and m < 960
+if isRth
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+if m >= 1200
+    asiaAccH := na(asiaAccH) ? high : math.max(asiaAccH, high)
+    asiaAccL := na(asiaAccL) ? low : math.min(asiaAccL, low)
+if m >= 120 and m < 300
+    lonAccH := na(lonAccH) ? high : math.max(lonAccH, high)
+    lonAccL := na(lonAccL) ? low : math.min(lonAccL, low)
+if not isRth and (m >= 1080 or m < 570)
+    onAccH := na(onAccH) ? high : math.max(onAccH, high)
+    onAccL := na(onAccL) ? low : math.min(onAccL, low)
+asiaH = m < 1080 ? asiaAccH : na
+asiaL = m < 1080 ? asiaAccL : na
+lonH  = m >= 300 and m < 1080 ? lonAccH : na
+lonL  = m >= 300 and m < 1080 ? lonAccL : na
+onH   = m >= 570 and m < 1080 ? onAccH : na
+onL   = m >= 570 and m < 1080 ? onAccL : na
+hiRng = ta.highest(high, rngBars)
+loRng = ta.lowest(low, rngBars)
+rngH  = useRng ? hiRng[1] : na
+rngL  = useRng ? loRng[1] : na
+
+// ── Equal highs / lows at the range edge ────────────────────────────────────
+PIV = 3
+var array<int>   pivHi  = array.new<int>()
+var array<int>   pivLo  = array.new<int>()
+var array<float> liveHL = array.new<float>()
+var array<int>   liveHB = array.new<int>()
+var array<float> liveLL = array.new<float>()
+var array<int>   liveLB = array.new<int>()
+maxBack(int a, int b) =>   // max high of bar indices a..b (inclusive), -inf when empty
+    float v = -1e100
+    if b >= a
+        for j = a to b
+            v := math.max(v, high[bar_index - j])
+    v
+minBack(int a, int b) =>
+    float v = 1e100
+    if b >= a
+        for j = a to b
+            v := math.min(v, low[bar_index - j])
+    v
+hiP = ta.highest(high, PIV)
+loP = ta.lowest(low, PIV)
+bool phConf = bar_index >= 2 * PIV and high[PIV] > hiP[PIV + 1] and high[PIV] >= hiP
+bool plConf = bar_index >= 2 * PIV and low[PIV] < loP[PIV + 1] and low[PIV] <= loP
+if useEq and phConf
+    int k = bar_index - PIV
+    float hk = high[PIV]
+    int np_ = array.size(pivHi)
+    if np_ > 0
+        for t = np_ - 1 to math.max(0, np_ - 6)
+            int q = array.get(pivHi, t)
+            if k - q <= 96
+                float hq = high[bar_index - q]
+                if math.abs(hk - hq) <= eqTol * atr[PIV] and maxBack(q + 1, k - 1) <= math.max(hk, hq)
+                    float lvl = math.max(hk, hq)
+                    if maxBack(math.max(0, q - extBars), q - 1) <= lvl
+                        array.push(liveHL, lvl)
+                        array.push(liveHB, bar_index)
+                    break
+    array.push(pivHi, k)
+if useEq and plConf
+    int k = bar_index - PIV
+    float lk = low[PIV]
+    int np_ = array.size(pivLo)
+    if np_ > 0
+        for t = np_ - 1 to math.max(0, np_ - 6)
+            int q = array.get(pivLo, t)
+            if k - q <= 96
+                float lq = low[bar_index - q]
+                if math.abs(lk - lq) <= eqTol * atr[PIV] and minBack(q + 1, k - 1) >= math.min(lk, lq)
+                    float lvl = math.min(lk, lq)
+                    if minBack(math.max(0, q - extBars), q - 1) >= lvl
+                        array.push(liveLL, lvl)
+                        array.push(liveLB, bar_index)
+                    break
+    array.push(pivLo, k)
+float eqhNow = na
+float eqlNow = na
+if array.size(liveHL) > 0
+    for t = array.size(liveHL) - 1 to 0
+        if array.get(liveHB, t) < bar_index - 192
+            array.remove(liveHL, t)
+            array.remove(liveHB, t)
+if array.size(liveLL) > 0
+    for t = array.size(liveLL) - 1 to 0
+        if array.get(liveLB, t) < bar_index - 192
+            array.remove(liveLL, t)
+            array.remove(liveLB, t)
+if array.size(liveHL) > 0
+    eqhNow := array.min(liveHL)
+if array.size(liveLL) > 0
+    eqlNow := array.max(liveLL)
+if array.size(liveHL) > 0
+    for t = array.size(liveHL) - 1 to 0
+        if high > array.get(liveHL, t) and array.get(liveHB, t) != bar_index
+            array.remove(liveHL, t)
+            array.remove(liveHB, t)
+if array.size(liveLL) > 0
+    for t = array.size(liveLL) - 1 to 0
+        if low < array.get(liveLL, t) and array.get(liveLB, t) != bar_index
+            array.remove(liveLL, t)
+            array.remove(liveLB, t)
+eqH = useEq ? eqhNow[1] : na
+eqL = useEq ? eqlNow[1] : na
+
+// ── Sweeps of external levels (first breach of the day, one per level) ──────
+NL = 6
+var array<float> runH  = array.new<float>(NL, na)
+var array<float> runL  = array.new<float>(NL, na)
+var array<float> prevH = array.new<float>(NL, na)
+var array<float> prevL = array.new<float>(NL, na)
+var array<bool>  tkH   = array.new<bool>(NL, false)
+var array<bool>  tkL   = array.new<bool>(NL, false)
+var array<int>   pSide = array.new<int>()
+var array<int>   pBar  = array.new<int>()
+var array<int>   pDay  = array.new<int>()
+hiArr = array.from(pdh, asiaH, lonH, onH, eqH, rngH)
+loArr = array.from(pdl, asiaL, lonL, onL, eqL, rngL)
+bool sweptH = false
+bool sweptL = false
+for j = 0 to NL - 1
+    // highs → short setups
+    float v = array.get(hiArr, j)
+    float pv = array.get(prevH, j)
+    if newDay or na(v) or na(pv) or v != pv
+        array.set(runH, j, na)
+        array.set(tkH, j, false)
+        array.set(prevH, j, v)
+    if not na(v)
+        float r = array.get(runH, j)
+        if high > v and (na(r) or r <= v) and not array.get(tkH, j) and inWin
+            array.push(pSide, -1)
+            array.push(pBar, bar_index)
+            array.push(pDay, curDay)
+            array.set(tkH, j, true)
+            sweptH := true
+        array.set(runH, j, na(r) ? high : math.max(r, high))
+    // lows → long setups
+    float w = array.get(loArr, j)
+    float pw = array.get(prevL, j)
+    if newDay or na(w) or na(pw) or w != pw
+        array.set(runL, j, na)
+        array.set(tkL, j, false)
+        array.set(prevL, j, w)
+    if not na(w)
+        float r2 = array.get(runL, j)
+        if low < w and (na(r2) or r2 >= w) and not array.get(tkL, j) and inWin
+            array.push(pSide, 1)
+            array.push(pBar, bar_index)
+            array.push(pDay, curDay)
+            array.set(tkL, j, true)
+            sweptL := true
+        array.set(runL, j, na(r2) ? low : math.min(r2, low))
+
+// ── MSS + displacement + first FVG of the leg ───────────────────────────────
+var int setupsToday = 0
+if newDay
+    setupsToday := 0
+bool  newSetup = false
+int   nsSide = 0
+float nsEntry = na
+float nsStop = na
+float nsInval = na
+float nsNear = na
+float nsFar = na
+if array.size(pSide) > 0
+    kS = array.new<int>()
+    kB = array.new<int>()
+    kD = array.new<int>()
+    for t = 0 to array.size(pSide) - 1
+        int side = array.get(pSide, t)
+        int s    = array.get(pBar, t)
+        int d    = array.get(pDay, t)
+        if d != curDay or setupsToday >= maxTrades or bar_index - s > lookBars + postBars
+            continue
+        // extreme since the sweep, MSS reference before the sweep
+        float ext = side < 0 ? maxBack(s, bar_index) : minBack(s, bar_index)
+        float ref = side < 0 ? minBack(math.max(0, s - mssN), s - 1) : maxBack(math.max(0, s - mssN), s - 1)
+        int mss = -1
+        for j = s to math.min(bar_index, s + lookBars)
+            if mss < 0 and (side < 0 ? close[bar_index - j] < ref : close[bar_index - j] > ref)
+                mss := j
+        if mss < 0
+            if bar_index - s < lookBars
+                array.push(kS, side)
+                array.push(kB, s)
+                array.push(kD, d)
+            continue
+        float bodyMax = -1e100
+        for j = s to mss
+            bodyMax := math.max(bodyMax, side * (close[bar_index - j] - open[bar_index - j]))
+        if bodyMax < dispAtr * atr[bar_index - mss]
+            continue
+        bool got = false
+        float near = na
+        float far = na
+        if s + 2 <= math.min(bar_index, mss + postBars)
+            for k = s + 2 to math.min(bar_index, mss + postBars)
+                if not got
+                    int ok_ = bar_index - k
+                    if side < 0 and high[ok_] < low[ok_ + 2] and low[ok_ + 2] - high[ok_] >= minFvgAtr * atr[ok_]
+                        got := true
+                        near := high[ok_]
+                        far := low[ok_ + 2]
+                    if side > 0 and low[ok_] > high[ok_ + 2] and low[ok_] - high[ok_ + 2] >= minFvgAtr * atr[ok_]
+                        got := true
+                        near := low[ok_]
+                        far := high[ok_ + 2]
+        if not got
+            if bar_index < mss + postBars
+                array.push(kS, side)
+                array.push(kB, s)
+                array.push(kD, d)
+            continue
+        newSetup := true
+        nsSide  := side
+        nsEntry := entryMode == "Edge" ? math.round_to_mintick(near) : math.round_to_mintick((near + far) / 2)
+        nsStop  := math.round_to_mintick(side < 0 ? ext + buf : ext - buf)
+        nsInval := ext
+        nsNear  := near
+        nsFar   := far
+        setupsToday += 1
+    pSide := kS
+    pBar  := kB
+    pDay  := kD
+
+// ── Orders (same order of events as lab/daily_portfolio.simulate) ───────────
+var bool  pending   = false
+var int   pendBar   = na
+var int   pendSide  = 0
+var float pendInval = na
+var float pendRun   = na
+var bool  beDone    = false
+var int   dayTrades = 0
+var int   lastEB    = -1
+var int   posBar    = na
+if newDay
+    dayTrades := 0
+int newFills = 0
+if strategy.closedtrades > 0
+    int eb = strategy.closedtrades.entry_bar_index(strategy.closedtrades - 1)
+    if eb > lastEB
+        newFills += 1
+        lastEB := eb
+if strategy.opentrades > 0
+    int eb = strategy.opentrades.entry_bar_index(0)
+    if eb > lastEB
+        newFills += 1
+        lastEB := eb
+if newFills > 0
+    dayTrades += newFills
+    pending := false
+    posBar := lastEB
+    beDone := false
+
+// cancel a working order when a bar closes beyond the sweep extreme
+if pending and strategy.position_size == 0
+    if (pendSide > 0 and close < pendInval) or (pendSide < 0 and close > pendInval)
+        strategy.cancel_all()
+        pending := false
+
+if newSetup and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(m) and inRange
+    int side = nsSide
+    float risk = (nsEntry - nsStop) * side
+    if risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+        strategy.cancel_all()
+        float tp1 = math.round_to_mintick(nsEntry + side * tp1R * risk)
+        float run = math.round_to_mintick(nsEntry + side * runR * risk)
+        if side > 0
+            strategy.entry("Sweep L", strategy.long, qty = qty, limit = nsEntry)
+            strategy.exit("TP1 L", "Sweep L", qty_percent = 50, stop = nsStop, limit = tp1, comment_profit = "TP1", comment_loss = "SL")
+            strategy.exit("X L", "Sweep L", stop = nsStop, limit = run, comment_profit = "TP2", comment_loss = "SL")
+        else
+            strategy.entry("Sweep S", strategy.short, qty = qty, limit = nsEntry)
+            strategy.exit("TP1 S", "Sweep S", qty_percent = 50, stop = nsStop, limit = tp1, comment_profit = "TP1", comment_loss = "SL")
+            strategy.exit("X S", "Sweep S", stop = nsStop, limit = run, comment_profit = "TP2", comment_loss = "SL")
+        pending   := true
+        pendBar   := bar_index
+        pendSide  := side
+        pendInval := nsInval
+        pendRun   := run
+        if showZones
+            box.new(bar_index - 3, math.max(nsNear, nsFar), bar_index + 10, math.min(nsNear, nsFar),
+                 border_color = color.new(side > 0 ? color.teal : color.maroon, 30), bgcolor = color.new(side > 0 ? color.teal : color.maroon, 85))
+            line.new(bar_index, nsEntry, bar_index + 12, nsEntry, color = color.white)
+            line.new(bar_index, nsStop, bar_index + 12, nsStop, color = color.red)
+            line.new(bar_index, tp1, bar_index + 12, tp1, color = color.lime, style = line.style_dashed)
+            line.new(bar_index, run, bar_index + 12, run, color = color.green)
+
+nextNewDay = gday(time_close) != curDay
+nextAfter  = afterFlat(modClose)
+if pending and strategy.position_size == 0 and (bar_index + 1 - pendBar > expiryBars or nextNewDay or nextAfter or dayTrades >= maxTrades)
+    strategy.cancel_all()
+    pending := false
+
+// after TP1 the rest goes to break-even (from the next bar); time stop at the next open
+if strategy.position_size != 0
+    float ep = strategy.position_avg_price
+    if not beDone and math.abs(strategy.position_size) < qty
+        beDone := true
+        if strategy.position_size > 0
+            strategy.exit("X L", "Sweep L", stop = ep, limit = pendRun, comment_profit = "TP2", comment_loss = "BE")
+        else
+            strategy.exit("X S", "Sweep S", stop = ep, limit = pendRun, comment_profit = "TP2", comment_loss = "BE")
+    if tStopBars > 0 and not na(posBar) and bar_index - posBar >= tStopBars
+        strategy.close_all(comment = "Čas")
+    if nextAfter or nextNewDay
+        strategy.close_all(comment = "EOD")
+
+// ── Display ─────────────────────────────────────────────────────────────────
+plot(showLv ? pdh : na, "PDH", color.new(color.orange, 30), style = plot.style_linebr)
+plot(showLv ? pdl : na, "PDL", color.new(color.orange, 30), style = plot.style_linebr)
+plot(showLv ? asiaH : na, "Asia H", color.new(color.purple, 40), style = plot.style_linebr)
+plot(showLv ? asiaL : na, "Asia L", color.new(color.purple, 40), style = plot.style_linebr)
+plot(showLv ? lonH : na, "London H", color.new(color.blue, 40), style = plot.style_linebr)
+plot(showLv ? lonL : na, "London L", color.new(color.blue, 40), style = plot.style_linebr)
+plot(showLv ? onH : na, "ON H", color.new(color.gray, 40), style = plot.style_linebr)
+plot(showLv ? onL : na, "ON L", color.new(color.gray, 40), style = plot.style_linebr)
+plotshape(sweptH, "Sweep high", shape.xcross, location.abovebar, color.new(color.red, 20), size = size.tiny)
+plotshape(sweptL, "Sweep low", shape.xcross, location.belowbar, color.new(color.lime, 20), size = size.tiny)
+bgcolor(inWin ? color.new(color.gray, 95) : na, title = "Okno za sweep")
+
+var int firstBarTime = time
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = 0
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    float acc = 0.0
+    int curEB = -1
+    bool curIn = false
+    int nc = strategy.closedtrades
+    if nc > 0
+        for k = 0 to nc
+            int eb = k < nc ? strategy.closedtrades.entry_bar_index(k) : -2
+            if eb != curEB and curEB != -1 and curIn
+                n += 1
+                if acc > 0
+                    wins += 1
+                    gw += acc
+                else
+                    gl -= acc
+            if k < nc and eb != curEB
+                acc := 0.0
+                curEB := eb
+                int et = strategy.closedtrades.entry_time(k)
+                curIn := et >= startT and et < endT
+            if k < nc
+                acc += strategy.closedtrades.profit(k)
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    table.cell(tb, 0, 0, "External Sweep", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period, text_color = color.white)
+    table.cell(tb, 0, 1, "Obdobje", text_color = color.white)
+    table.cell(tb, 1, 1, str.format("{0,date,yyyy-MM-dd} → {1,date,yyyy-MM-dd}", math.max(startT, firstBarTime), math.min(endT, time)), text_color = color.white)
+    table.cell(tb, 0, 2, "Pozicije (zaprte)", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(n), text_color = color.white)
+    table.cell(tb, 0, 3, "Win rate (pozicije)", text_color = color.white)
+    table.cell(tb, 1, 3, str.tostring(wr, "#.0") + "%", text_color = wr >= 60 ? color.lime : color.orange)
+    table.cell(tb, 0, 4, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 4, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 5, "Net P&L", text_color = color.white)
+    table.cell(tb, 1, 5, "$" + str.tostring(gw - gl, "#,###"), text_color = gw - gl >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 6, "Python 1 leto", text_color = color.white)
+    table.cell(tb, 1, 6, "64 % WR, PF 2.77", text_color = color.gray)
