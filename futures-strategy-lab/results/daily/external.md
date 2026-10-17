@@ -88,3 +88,29 @@ Results for that config:
 The same rules on MNQ, 2 trades/day: 43% WR, PF 0.71.
 
 Verdict: the MGC 3m model is positive across nearly the whole grid, and OOS is better than IS. The 60%+ WR, however, only appears on the standard bar grid, which is the one TradingView uses. With shifted bars the WR is about 50% and the PF about 1.2-1.3. Treat it as a forward-test candidate, not a proven 60% system. MNQ fails.
+
+## Session windows (user's rule: skip the NY AM open). No guard, MGC/MNQ 3m, 2 trades/day, partial exit
+The best result is MGC with the window 02:00-09:30 + 10:00-15:00, i.e. the whole day except the 09:30-10:00 NY open (disp 1.5, CE entry):
+
+| Period | Trades | WR | PF |
+|---|---|---|---|
+| Full year | 101 | 64.4% | 2.77 |
+| IS | — | 60.3% | 1.99 |
+| OOS | — | 71.1% | 4.48 |
+
+The full year has 12/14 positive months.
+
+The 02:00-15:00 baseline with the open included: 64.5% WR, PF 2.62.
+
+Only NY 10:00-13:00 or 10:30-13:00, on MGC and MNQ:
+- 7-61 trades per year;
+- WR 29-47%;
+- PF 0.5-0.96.
+
+The edge comes from London/early-NY sweeps, not from midday NY alone.
+
+London + NY 10-13: 81 trades, 56.8% WR, PF 1.99.
+
+MNQ is negative in every window.
+
+The guard grid was stopped at the user's request ("no guard").
