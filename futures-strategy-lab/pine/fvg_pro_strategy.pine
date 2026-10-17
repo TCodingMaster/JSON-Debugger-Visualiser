@@ -1,0 +1,323 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// FVG Pro: break of structure + fair value gap continuation, fixed 2R
+//
+// Mirrors futures-strategy-lab/lab/fvg_pro.py rule for rule, so the
+// TradingView Strategy Tester and the Python backtest can be compared trade by
+// trade (results/fvg_pro/trades_*.csv).
+//
+// HOW TO USE
+//   1. Pine Editor → paste this file → Save → Add to chart.
+//   2. Chart: MNQ1! or MGC1! (CME), 1–15 minute. Sizing is automatic:
+//      2 contracts on MNQ, 1 on MGC.
+//   3. Strategy Tester → Properties: commission is set to $0.62 per contract
+//      per side (MNQ). Use $0.82 for MGC.
+//   4. Bar Replay works with it too: step bar by bar and watch the orders form.
+//
+// RULES (long; short mirrors)
+//   • Swing high confirmed `Pivot length` bars after it prints (higher than the
+//     bars before it, >= the bars after it).
+//   • BOS: a bar CLOSES above the last confirmed swing high (each level once).
+//   • FVG: earliest bullish gap (low > high two bars earlier, size >= 0.15 × ATR14)
+//     from 3 bars before the BOS to 3 bars after it.
+//   • Limit order at the gap's top edge (or 50 %), valid 20 bars, cancelled if
+//     a bar closes below the gap (FVG not respected).
+//   • Stop: lowest low from 10 bars before the BOS to the gap bar, minus
+//     2 ticks. Target: 2R.
+//   • New setups only in the selected New York sessions (default Asia 20:00–24:00
+//     and London 02:00–05:00). Max 2 trades per Globex day. Flat by 15:55 NY.
+//
+// DIFFERENCES FROM THE PYTHON ENGINE (small)
+//   • TradingView's indicators warm up slightly differently (ATR/EMA seeding);
+//     the first few hundred bars on a chart can differ.
+//   • If price gaps through the entry, the target here stays at the planned
+//     2R; Python recomputes it from the better fill.
+//
+// Results are hypothetical. Backtests on short samples overstate edges.
+// Not financial advice.
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("FVG Pro — BOS + FVG (fixed 2R)", shorttitle = "FVG Pro", overlay = true, pyramiding = 0,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300, max_bars_back = 300)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+G1 = "Setup"
+pivotLen   = input.int(3, "Pivot length (swing confirmation bars)", minval = 1, group = G1)
+minFvgAtr  = input.float(0.15, "Min FVG size × ATR(14)", minval = 0, step = 0.05, group = G1)
+fvgBefore  = input.int(3, "Look for FVG up to N bars before the BOS", minval = 0, maxval = 10, group = G1)
+fvgAfter   = input.int(3, "…and up to N bars after the BOS", minval = 0, maxval = 10, group = G1)
+entryMode  = input.string("Edge", "Entry in the FVG", options = ["Edge", "CE (50%)"], group = G1)
+
+G2 = "Risk"
+rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+bufTicks   = input.int(2, "Stop buffer (ticks)", minval = 0, group = G2)
+stopLook   = input.int(10, "Stop: lowest low from N bars before the BOS", minval = 1, maxval = 50, group = G2)
+expiryBars = input.int(20, "Cancel unfilled order after N bars", minval = 1, group = G2)
+minRiskTk  = input.int(4, "Skip if stop is closer than N ticks", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Skip if stop is wider than N × ATR", minval = 0.5, group = G2)
+maxTrades  = input.int(2, "Max trades per Globex day", minval = 1, group = G2)
+qtyInput   = input.int(0, "Contracts (0 = auto: MNQ 2, MGC 1, else 1)", minval = 0, group = G2)
+
+G3 = "Sessions (New York time, HHMM-HHMM)"
+useS1  = input.bool(true, "Asia", inline = "s1", group = G3)
+sess1  = input.string("2000-0000", "", inline = "s1", group = G3)
+useS2  = input.bool(true, "London", inline = "s2", group = G3)
+sess2  = input.string("0200-0500", "", inline = "s2", group = G3)
+useS3  = input.bool(false, "NY AM", inline = "s3", group = G3)
+sess3  = input.string("0830-1100", "", inline = "s3", group = G3)
+flatHM = input.string("1555", "Flatten all at (HHMM)", group = G3)
+useTrend = input.bool(false, "Only with the 1-hour trend (20-hour EMA slope)", group = G3)
+
+G4 = "Display"
+showZones = input.bool(true, "Draw traded FVGs and order levels", group = G4)
+showTable = input.bool(true, "Stats table", group = G4)
+goalWr    = input.float(60.0, "Goal: win rate %", group = G4)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+// Globex trading day: bars from 18:00 NY belong to the next calendar day
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+
+flatMin  = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen  = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+inSess   = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))
+
+qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : syminfo.root == "MGC" ? 1 : 1
+tick = syminfo.mintick
+buf  = bufTicks * tick
+atr  = ta.atr(14)
+
+// 1-hour trend: slope of a 20-hour EMA computed on this chart's bars
+barsPerHour = math.max(1, int(60 / math.max(1, timeframe.multiplier)))
+emaH  = ta.ema(close, 20 * barsPerHour)
+trend = math.sign(emaH - emaH[barsPerHour])
+
+// ── Market structure: confirmed swings and breaks ────────────────────────────
+// rolling extremes computed on every bar (ta.* must not run conditionally)
+hiR = ta.highest(high, pivotLen)
+loR = ta.lowest(low, pivotLen)
+var float lastSH = na
+var float lastSL = na
+var float usedUp = na
+var float usedDn = na
+if bar_index >= 2 * pivotLen
+    if high[pivotLen] > hiR[pivotLen + 1] and high[pivotLen] >= hiR
+        lastSH := high[pivotLen]
+    if low[pivotLen] < loR[pivotLen + 1] and low[pivotLen] <= loR
+        lastSL := low[pivotLen]
+
+bosUp = not na(lastSH) and close > lastSH and (na(usedUp) or lastSH != usedUp)
+bosDn = not na(lastSL) and close < lastSL and (na(usedDn) or lastSL != usedDn)
+if bosUp
+    usedUp := lastSH
+if bosDn
+    usedDn := lastSL
+
+// FVG test `k` bars back: returns [found, bottom, top]
+gapAt(int k, int side) =>
+    bool ok = false
+    float bot = na
+    float top = na
+    if side > 0 and low[k] > high[k + 2] and (low[k] - high[k + 2]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k + 2]
+        top := low[k]
+    if side < 0 and high[k] < low[k + 2] and (low[k + 2] - high[k]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k]
+        top := low[k + 2]
+    [ok, bot, top]
+
+// lowest low / highest high over offsets [a, b] bars back
+lowestBack(int a, int b) =>
+    float v = low[a]
+    for j = a to b
+        v := math.min(v, low[j])
+    v
+highestBack(int a, int b) =>
+    float v = high[a]
+    for j = a to b
+        v := math.max(v, high[j])
+    v
+
+// ── Collect this bar's setups in the same order as the Python engine ─────────
+var array<int> waitBar  = array.new<int>()
+var array<int> waitSide = array.new<int>()
+setSide  = array.new<int>()
+setBot   = array.new<float>()
+setTop   = array.new<float>()
+setStop  = array.new<float>()
+
+addSetup(int side, int bos, int k, float bot, float top) =>
+    // stop: extreme from `stopLook` bars before the BOS to the gap bar (offsets from now)
+    int a = bar_index - k
+    int b = math.min(bar_index - bos + stopLook, bar_index)
+    float st = side > 0 ? lowestBack(a, b) - buf : highestBack(a, b) + buf
+    array.push(setSide, side)
+    array.push(setBot, bot)
+    array.push(setTop, top)
+    array.push(setStop, st)
+
+// new BOS events (long first, then short)
+for s = 0 to 1
+    int side = s == 0 ? 1 : -1
+    bool ev = side > 0 ? bosUp : bosDn
+    if ev
+        bool got = false
+        int first = math.min(fvgBefore, bar_index - 2)
+        for off = first to 0
+            if not got
+                [ok, bot, top] = gapAt(off, side)
+                if ok
+                    got := true
+                    addSetup(side, bar_index, bar_index - off, bot, top)
+        if not got
+            array.push(waitBar, bar_index)
+            array.push(waitSide, side)
+
+// BOS events still waiting for their FVG (oldest first, same order as Python)
+if array.size(waitBar) > 0
+    keepBar  = array.new<int>()
+    keepSide = array.new<int>()
+    for w = 0 to array.size(waitBar) - 1
+        int wb = array.get(waitBar, w)
+        int ws = array.get(waitSide, w)
+        if wb == bar_index
+            array.push(keepBar, wb)
+            array.push(keepSide, ws)
+        else
+            [ok, bot, top] = gapAt(0, ws)
+            if ok
+                addSetup(ws, wb, bar_index, bot, top)
+            else if bar_index - wb < fvgAfter
+                array.push(keepBar, wb)
+                array.push(keepSide, ws)
+    waitBar := keepBar
+    waitSide := keepSide
+
+// ── Order management (mirrors lab/engine.py) ─────────────────────────────────
+var bool  pending   = false
+var int   pendBar   = na
+var int   pendSide  = 0
+var float pendEntry = na
+var float pendStop  = na
+var float pendTgt   = na
+var float pendInval = na
+var int   dayKey    = na
+var int   dayTrades = 0
+var int   lastEntries = 0
+
+curDay = gday(time)
+if na(dayKey) or curDay != dayKey
+    dayKey := curDay
+    dayTrades := 0
+
+// fills that happened on this bar
+entries = strategy.closedtrades + strategy.opentrades
+if entries > lastEntries
+    dayTrades += entries - lastEntries
+    pending := false
+lastEntries := entries
+
+// pending order: invalidate on a close through the gap (only if not filled)
+if pending and strategy.position_size == 0
+    if (pendSide > 0 and close < pendInval) or (pendSide < 0 and close > pendInval)
+        strategy.cancel_all()
+        pending := false
+
+// accept this bar's setups (newest replaces older pending order)
+nSet = array.size(setSide)
+if nSet > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and inSess
+    for i = 0 to nSet - 1
+        int side  = array.get(setSide, i)
+        float bot = array.get(setBot, i)
+        float top = array.get(setTop, i)
+        float st  = array.get(setStop, i)
+        bool trendOk = not useTrend or trend * side > 0
+        float entry = entryMode == "Edge" ? (side > 0 ? top : bot) : math.round_to_mintick((bot + top) / 2)
+        float risk = (entry - st) * side
+        if trendOk and risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+            strategy.cancel_all()
+            float tgt = entry + side * rr * risk
+            if side > 0
+                strategy.entry("FVG L", strategy.long, qty = qty, limit = entry)
+                strategy.exit("X L", "FVG L", stop = st, limit = tgt)
+            else
+                strategy.entry("FVG S", strategy.short, qty = qty, limit = entry)
+                strategy.exit("X S", "FVG S", stop = st, limit = tgt)
+            pending   := true
+            pendBar   := bar_index
+            pendSide  := side
+            pendEntry := entry
+            pendStop  := st
+            pendTgt   := tgt
+            pendInval := side > 0 ? bot : top
+            if showZones
+                box.new(bar_index - 2, top, bar_index + 6, bot, border_color = color.new(side > 0 ? color.teal : color.maroon, 40),
+                     bgcolor = color.new(side > 0 ? color.teal : color.maroon, 85))
+                line.new(bar_index, entry, bar_index + 8, entry, color = color.green, width = 1)
+                line.new(bar_index, st, bar_index + 8, st, color = color.red, width = 1)
+                line.new(bar_index, tgt, bar_index + 8, tgt, color = color.blue, style = line.style_dashed, width = 1)
+
+// expiry / next bar is a new day / next bar is past the flatten time → cancel before it trades
+nextNewDay  = gday(time_close) != curDay
+nextAfter   = afterFlat(modClose)
+if pending and strategy.position_size == 0 and (bar_index + 1 - pendBar > expiryBars or nextNewDay or nextAfter or dayTrades >= maxTrades)
+    strategy.cancel_all()
+    pending := false
+
+// flat by the flatten time (fills at the next bar's open, like the Python engine)
+if strategy.position_size != 0 and (nextAfter or nextNewDay)
+    strategy.close_all(comment = "EOD")
+
+plotshape(bosUp, "BOS up", shape.triangleup, location.belowbar, color.new(color.teal, 30), size = size.tiny)
+plotshape(bosDn, "BOS down", shape.triangledown, location.abovebar, color.new(color.maroon, 30), size = size.tiny)
+bgcolor(inSess ? color.new(color.gray, 94) : na, title = "Setup session")
+
+// ── Stats table ──────────────────────────────────────────────────────────────
+if showTable and barstate.islastconfirmedhistory or showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = strategy.closedtrades
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    if n > 0
+        for t = 0 to n - 1
+            float p = strategy.closedtrades.profit(t)
+            if p > 0
+                wins += 1
+                gw += p
+            else
+                gl -= p
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    float avgW = wins > 0 ? gw / wins : 0.0
+    float avgL = n - wins > 0 ? gl / (n - wins) : 0.0
+    table.cell(tb, 0, 0, "FVG Pro", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period, text_color = color.white)
+    table.cell(tb, 0, 1, "Trades", text_color = color.white)
+    table.cell(tb, 1, 1, str.tostring(n), text_color = color.white)
+    table.cell(tb, 0, 2, "Win rate", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(wr, "#.0") + "%  (goal " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
+    table.cell(tb, 0, 3, "Avg win / avg loss", text_color = color.white)
+    table.cell(tb, 1, 3, avgL > 0 ? str.tostring(avgW / avgL, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 4, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 4, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 5, "Net P&L", text_color = color.white)
+    table.cell(tb, 1, 5, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 6, "Breakeven WR at " + str.tostring(rr, "#.#") + "R", text_color = color.white)
+    table.cell(tb, 1, 6, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)
+
+alertcondition(bosUp or bosDn, "FVG Pro: break of structure", "FVG Pro: BOS on {{ticker}}")

@@ -1,0 +1,519 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// FVG Pro Setups v2 — iskalnik setupov za MNQ 15m (BOS + FVG, 1.5R) + moja pravila
+//
+// Setup (ista pravila kot pine/fvg_pro_strategy.pine in lab/fvg_pro.py):
+//   • BOS: sveča zapre čez zadnji potrjen swing (3 bari na vsako stran).
+//   • FVG: najzgodnejši gap (>= 0.15 × ATR14) od 3 barov pred do 3 barov po BOS.
+//   • Vstop: limit na robu FVG, velja 20 barov; preklic, če sveča zapre skozi FVG.
+//   • SL: za ekstremom poteze + 2 ticka. TP: 1.5R (nastavljivo).
+//
+// Načini (seje po New York času; v Sloveniji +6 ur):
+//   • Kvaliteta:     Asia 20:00–24:00 + London 02:00–05:00, max 1 trade/dan.
+//     Backtest MNQ 15m: 68 % WR, +0.68R, trade v ~52 % dni.
+//   • Uravnoteženo:  + NY AM 08:30–11:00 kot rezerva, max 1 trade/dan.
+//     Backtest MNQ 15m: 62 % WR, +0.52R, trade v ~60 % dni.
+//   (Yahoo podatki 6. 8. – 15. 10. 2026, ~50 sej: majhen vzorec.)
+//
+// Vsak setup se virtualno odigra z istim modelom kot backtest (sveča vstopa:
+// open → bližji ekstrem → drugi ekstrem → close; stop in target v isti sveči
+// odloči ista pot). Tabela kaže WR, R, % dni s trade-om in panel "Danes".
+// Alerti: nov setup, vstop, TP, SL, dnevni limit dosežen.
+//
+// Moja pravila (iz analize 59 paper trade-ov, 23. 7. – 15. 10. 2026):
+//   1) samo MNQ (2) ali MGC (1) — na drugih simbolih ni setupov, rdeče opozorilo
+//   2) dnevni limit trade-ov (privzeto 2; način Kvaliteta sam omeji na 1)
+//   3) osenčene moje najboljše ure 11:00–18:00 po slovenskem času
+//   4) SL/TP ob vstopu, ne premikaj (opomnik v oznaki in alertu)
+//   5) brez impulznih vstopov — samo setupi tega indikatorja
+// Indikator ne vidi tvojih ročnih trade-ov: limit šteje njegove setupe.
+// Ni finančni nasvet.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("FVG Pro Setups v2", overlay = true, max_boxes_count = 400, max_lines_count = 500,
+     max_labels_count = 400, max_bars_back = 300)
+
+G0 = "Način"
+mode = input.string("Kvaliteta: Asia + London", "Način", options = ["Kvaliteta: Asia + London", "Uravnoteženo: + NY AM", "Po meri"], group = G0)
+
+G1 = "Setup"
+pivotLen  = input.int(3, "Pivot (bari za potrditev swinga)", minval = 1, group = G1)
+minFvgAtr = input.float(0.15, "Min. velikost FVG × ATR(14)", minval = 0, step = 0.05, group = G1)
+fvgBefore = input.int(3, "FVG do N barov pred BOS", minval = 0, maxval = 10, group = G1)
+fvgAfter  = input.int(3, "…in do N barov po BOS", minval = 0, maxval = 10, group = G1)
+entryMode = input.string("Rob", "Vstop v FVG", options = ["Rob", "Sredina (50%)"], group = G1)
+
+G2 = "Tveganje"
+rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
+stopLook   = input.int(10, "SL: ekstrem od N barov pred BOS", minval = 1, maxval = 50, group = G2)
+expiryBars = input.int(20, "Setup velja N barov", minval = 1, group = G2)
+minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
+maxTradesC = input.int(1, "Max trade-ov na dan (Po meri)", minval = 1, group = G2)
+pointValue = input.float(0, "$ na točko na pogodbo (0 = auto: MNQ 2, MGC 10)", group = G2)
+contracts  = input.int(0, "Pogodbe (0 = auto: MNQ 2, MGC 1)", group = G2)
+
+G3 = "Seje po meri (New York čas, HHMM-HHMM)"
+useS1  = input.bool(true, "Asia", inline = "s1", group = G3)
+sess1  = input.string("2000-0000", "", inline = "s1", group = G3)
+useS2  = input.bool(true, "London", inline = "s2", group = G3)
+sess2  = input.string("0200-0500", "", inline = "s2", group = G3)
+useS3  = input.bool(false, "NY AM", inline = "s3", group = G3)
+sess3  = input.string("0830-1100", "", inline = "s3", group = G3)
+flatHM = input.string("1555", "Zapri vse ob (HHMM, NY)", group = G3)
+useTrend = input.bool(false, "Samo z 1-urnim trendom", group = G3)
+
+G4 = "Prikaz"
+showSess  = input.bool(true, "Osenči seje", group = G4)
+showBos   = input.bool(true, "Označi BOS", group = G4)
+showTable = input.bool(true, "Tabela in panel Danes", group = G4)
+goalWr    = input.float(60.0, "Cilj: WR %", group = G4)
+colLong   = input.color(color.new(color.teal, 0), "Long barva", group = G4)
+colShort  = input.color(color.new(color.red, 0), "Short barva", group = G4)
+
+G5 = "Moja pravila (iz analize mojih trade-ov)"
+ruleSymbols = input.bool(true, "1) Samo MNQ in MGC (na drugih simbolih ni setupov + opozorilo)", group = G5)
+dailyCap    = input.int(2, "2) Dnevni limit trade-ov", minval = 1, group = G5,
+     tooltip = "Tvoj 3. trade dneva je bil v povprečju izgubarski (44 % WR, −$4,545 skupaj). Indikator nikoli ne da več setupov od tega limita (in ne več od načina).")
+showMyHours = input.bool(true, "3) Osenči moje najboljše ure", group = G5)
+myHours     = input.string("0500-1200", "   Moje ure (New York čas = 11:00–18:00 v Sloveniji)", group = G5)
+showRules   = input.bool(true, "Pokaži pravila v tabeli", group = G5)
+
+// ── Mode → sessions / max trades ─────────────────────────────────────────────
+custom = mode == "Po meri"
+s1On = custom ? useS1 : true
+s2On = custom ? useS2 : true
+s3On = custom ? useS3 : mode == "Uravnoteženo: + NY AM"
+s1 = custom ? sess1 : "2000-0000"
+s2 = custom ? sess2 : "0200-0500"
+s3 = custom ? sess3 : "0830-1100"
+maxTrades = math.min(custom ? maxTradesC : 1, dailyCap)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+minsUntil(string s, int m) => (hm(s, 0) - m + 1440) % 1440
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+flatMin = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen = minuteOfDay(time)
+allowedSym = syminfo.root == "MNQ" or syminfo.root == "MGC"
+inSess  = ((s1On and inWindow(s1, modOpen)) or (s2On and inWindow(s2, modOpen)) or (s3On and inWindow(s3, modOpen))) and (not ruleSymbols or allowedSym)
+inMyHours = inWindow(myHours, modOpen)
+tick = syminfo.mintick
+buf  = bufTicks * tick
+atr  = ta.atr(14)
+pv   = pointValue > 0 ? pointValue : syminfo.root == "MGC" ? 10.0 : syminfo.root == "MNQ" ? 2.0 : syminfo.pointvalue
+qty  = contracts > 0 ? contracts : syminfo.root == "MGC" ? 1 : 2
+barsPerHour = math.max(1, int(60 / math.max(1, timeframe.multiplier)))
+emaH  = ta.ema(close, 20 * barsPerHour)
+trend = math.sign(emaH - emaH[barsPerHour])
+
+bgcolor(showSess and inSess ? color.new(color.gray, 93) : na, title = "Seja za setupe")
+bgcolor(showMyHours and inMyHours ? color.new(color.blue, 95) : na, title = "Moje ure")
+
+// ── Structure (identical to the strategy) ────────────────────────────────────
+hiR = ta.highest(high, pivotLen)
+loR = ta.lowest(low, pivotLen)
+var float lastSH = na
+var float lastSL = na
+var float usedUp = na
+var float usedDn = na
+if bar_index >= 2 * pivotLen
+    if high[pivotLen] > hiR[pivotLen + 1] and high[pivotLen] >= hiR
+        lastSH := high[pivotLen]
+    if low[pivotLen] < loR[pivotLen + 1] and low[pivotLen] <= loR
+        lastSL := low[pivotLen]
+bosUp = not na(lastSH) and close > lastSH and (na(usedUp) or lastSH != usedUp)
+bosDn = not na(lastSL) and close < lastSL and (na(usedDn) or lastSL != usedDn)
+if bosUp
+    usedUp := lastSH
+if bosDn
+    usedDn := lastSL
+plotshape(showBos and bosUp, "BOS gor", shape.triangleup, location.belowbar, color.new(colLong, 40), size = size.tiny)
+plotshape(showBos and bosDn, "BOS dol", shape.triangledown, location.abovebar, color.new(colShort, 40), size = size.tiny)
+
+gapAt(int k, int side) =>
+    bool ok = false
+    float bot = na
+    float top = na
+    if side > 0 and low[k] > high[k + 2] and (low[k] - high[k + 2]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k + 2]
+        top := low[k]
+    if side < 0 and high[k] < low[k + 2] and (low[k + 2] - high[k]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k]
+        top := low[k + 2]
+    [ok, bot, top]
+lowestBack(int a, int b) =>
+    float v = low[a]
+    for j = a to b
+        v := math.min(v, low[j])
+    v
+highestBack(int a, int b) =>
+    float v = high[a]
+    for j = a to b
+        v := math.max(v, high[j])
+    v
+
+var array<int> waitBar  = array.new<int>()
+var array<int> waitSide = array.new<int>()
+setSide = array.new<int>()
+setBot  = array.new<float>()
+setTop  = array.new<float>()
+setStop = array.new<float>()
+setGap  = array.new<int>()
+addSetup(int side, int bos, int k, float bot, float top) =>
+    int a = bar_index - k
+    int b = math.min(bar_index - bos + stopLook, bar_index)
+    float st = side > 0 ? lowestBack(a, b) - buf : highestBack(a, b) + buf
+    array.push(setSide, side)
+    array.push(setBot, bot)
+    array.push(setTop, top)
+    array.push(setStop, st)
+    array.push(setGap, k)
+for s = 0 to 1
+    int side = s == 0 ? 1 : -1
+    bool ev = side > 0 ? bosUp : bosDn
+    if ev
+        bool got = false
+        int first = math.min(fvgBefore, bar_index - 2)
+        for off = first to 0
+            if not got
+                [ok, bot, top] = gapAt(off, side)
+                if ok
+                    got := true
+                    addSetup(side, bar_index, bar_index - off, bot, top)
+        if not got
+            array.push(waitBar, bar_index)
+            array.push(waitSide, side)
+if array.size(waitBar) > 0
+    keepBar  = array.new<int>()
+    keepSide = array.new<int>()
+    for w = 0 to array.size(waitBar) - 1
+        int wb = array.get(waitBar, w)
+        int ws = array.get(waitSide, w)
+        if wb == bar_index
+            array.push(keepBar, wb)
+            array.push(keepSide, ws)
+        else
+            [ok, bot, top] = gapAt(0, ws)
+            if ok
+                addSetup(ws, wb, bar_index, bot, top)
+            else if bar_index - wb < fvgAfter
+                array.push(keepBar, wb)
+                array.push(keepSide, ws)
+    waitBar := keepBar
+    waitSide := keepSide
+
+// ── Fill bar, same path model as the backtest engine ─────────────────────────
+// returns [state, fill, target, exitPrice, isTp]; state 0 = untouched,
+// 1 = cancelled (stop traded first), 2 = filled and still open, 3 = filled and closed
+resolveFill(int side, float entry, float stop) =>
+    float[] path = open - low <= high - open ? array.from(open, low, high, close) : array.from(open, high, low, close)
+    int state = 0
+    float fill = na
+    float tgt = na
+    float exitPx = na
+    bool isTp = false
+    int startK = 1
+    float a0 = open
+    if (side > 0 and open <= entry) or (side < 0 and open >= entry)
+        fill := open
+        if (fill - stop) * side <= 0
+            state := 1
+    else
+        for k = 1 to 3
+            if state == 0 and na(fill)
+                float a = array.get(path, k - 1)
+                float b = array.get(path, k)
+                float lo = math.min(a, b)
+                float hi = math.max(a, b)
+                bool he = entry >= lo and entry <= hi
+                bool hs = stop >= lo and stop <= hi
+                if he or hs
+                    float de = he ? math.abs(entry - a) : 1e18
+                    float ds = hs ? math.abs(stop - a) : 1e18
+                    if ds < de
+                        state := 1
+                    else
+                        fill := entry
+                        startK := k
+                        a0 := entry
+    if state == 0 and not na(fill)
+        tgt := fill + side * rr * (fill - stop) * side
+        state := 2
+        float prev = a0
+        for k = startK to 3
+            if state == 2
+                float b = array.get(path, k)
+                float a = k == startK ? prev : array.get(path, k - 1)
+                float lo = math.min(a, b)
+                float hi = math.max(a, b)
+                bool hs = stop >= lo and stop <= hi
+                bool ht = tgt >= lo and tgt <= hi
+                if hs or ht
+                    float ds = hs ? math.abs(stop - a) : 1e18
+                    float dt = ht ? math.abs(tgt - a) : 1e18
+                    state := 3
+                    isTp := dt < ds
+                    exitPx := isTp ? tgt : stop
+    [state, fill, tgt, exitPx, isTp]
+
+// ── Virtual trades (mirrors lab/engine.py, no costs) ─────────────────────────
+var int   dayKey = na
+var int   dayTrades = 0
+var int   nDays = 0
+var int   nTradeDays = 0
+var int   lastTradeDay = na
+var int   pSide = 0
+var float pEntry = na
+var float pStop = na
+var float pInval = na
+var int   pBar = na
+var line  plE = na
+var line  plS = na
+var line  plT = na
+var box   pBox = na
+var int   aSide = 0
+var float aEntry = na
+var float aStop = na
+var float aTgt = na
+var line  alE = na
+var line  alS = na
+var line  alT = na
+var int   nSetups = 0
+var int   nWins = 0
+var int   nLoss = 0
+var float sumR = 0.0
+var float sumUsd = 0.0
+var int   streak = 0
+var int   maxStreak = 0
+var string last10 = ""
+var string todayTxt = "brez setupa"
+
+curDay = gday(time)
+newDay = na(dayKey) or curDay != dayKey
+if newDay
+    dayKey := curDay
+    dayTrades := 0
+    nDays += 1
+    todayTxt := "brez setupa"
+
+record(float px, bool tp) =>
+    float r = (px - aEntry) * aSide / ((aEntry - aStop) * aSide)
+    float usd = (px - aEntry) * aSide * pv * qty
+    label.new(bar_index, aSide > 0 ? high : low, (tp ? "TP " : r > 0 ? "EOD " : "SL ") + str.tostring(r, "+#.##;-#.##") + "R",
+         color = r > 0 ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white,
+         style = aSide > 0 ? label.style_label_down : label.style_label_up, size = size.small)
+    line.set_x2(alE, bar_index)
+    line.set_x2(alS, bar_index)
+    line.set_x2(alT, bar_index)
+    [r, usd]
+
+// 1) manage the open trade on this bar
+if aSide != 0
+    float exitPx = na
+    bool tp = false
+    if newDay or afterFlat(modOpen)
+        exitPx := open
+    else
+        bool gapStop = aSide > 0 ? open <= aStop : open >= aStop
+        bool hitStop = aSide > 0 ? low <= aStop : high >= aStop
+        bool hitTgt  = aSide > 0 ? high >= aTgt : low <= aTgt
+        bool tgtFirst = aSide > 0 ? (high - open < open - low) : (open - low < high - open)
+        if gapStop
+            exitPx := open
+        else if hitStop and hitTgt and tgtFirst
+            exitPx := aTgt
+            tp := true
+        else if hitStop
+            exitPx := aStop
+        else if hitTgt
+            bool gapTgt = aSide > 0 ? open >= aTgt : open <= aTgt
+            exitPx := gapTgt ? open : aTgt
+            tp := true
+    if not na(exitPx)
+        [r, usd] = record(exitPx, tp)
+        nWins += r > 0 ? 1 : 0
+        nLoss += r > 0 ? 0 : 1
+        sumR += r
+        sumUsd += usd
+        streak := r > 0 ? 0 : streak + 1
+        maxStreak := math.max(maxStreak, streak)
+        last10 := str.substring((r > 0 ? "✓" : "✗") + last10, 0, math.min(10, str.length(last10) + 1))
+        todayTxt := (r > 0 ? "zmaga " : "izguba ") + str.tostring(r, "+#.##;-#.##") + "R"
+        alert(syminfo.ticker + " FVG Pro: " + (tp ? "TP" : r > 0 ? "zaprto" : "SL") + " " + str.tostring(r, "+#.##;-#.##") + "R", alert.freq_once_per_bar_close)
+        aSide := 0
+
+// 2) work the pending setup (only when flat)
+if pSide != 0 and aSide == 0
+    bool cancel = bar_index - pBar > expiryBars or newDay or afterFlat(modOpen) or dayTrades >= maxTrades
+    if not cancel
+        [state, fill, tgt, exitPx, isTp] = resolveFill(pSide, pEntry, pStop)
+        if state == 1
+            cancel := true
+        else if state >= 2
+            aSide := pSide
+            aEntry := fill
+            aStop := pStop
+            aTgt := tgt
+            dayTrades += 1
+            if lastTradeDay != curDay
+                nTradeDays += 1
+                lastTradeDay := curDay
+            color col = aSide > 0 ? colLong : colShort
+            alE := line.new(bar_index, aEntry, bar_index, aEntry, color = color.blue, width = 2)
+            alS := line.new(bar_index, aStop, bar_index, aStop, color = color.red, width = 2)
+            alT := line.new(bar_index, aTgt, bar_index, aTgt, color = color.green, width = 2)
+            line.set_x2(plE, bar_index)
+            line.set_x2(plS, bar_index)
+            line.set_x2(plT, bar_index)
+            box.set_right(pBox, bar_index)
+            todayTxt := (aSide > 0 ? "LONG" : "SHORT") + " odprt @ " + str.tostring(aEntry)
+            alert(syminfo.ticker + " FVG Pro: " + (aSide > 0 ? "LONG" : "SHORT") + " vstop @ " + str.tostring(aEntry), alert.freq_once_per_bar_close)
+            pSide := 0
+            if state == 3
+                [r, usd] = record(exitPx, isTp)
+                nWins += r > 0 ? 1 : 0
+                nLoss += r > 0 ? 0 : 1
+                sumR += r
+                sumUsd += usd
+                streak := r > 0 ? 0 : streak + 1
+                maxStreak := math.max(maxStreak, streak)
+                last10 := str.substring((r > 0 ? "✓" : "✗") + last10, 0, math.min(10, str.length(last10) + 1))
+                todayTxt := (r > 0 ? "zmaga " : "izguba ") + str.tostring(r, "+#.##;-#.##") + "R"
+                aSide := 0
+        else if (pSide > 0 and close < pInval) or (pSide < 0 and close > pInval)
+            cancel := true
+    if cancel and pSide != 0
+        for l in array.from(plE, plS, plT)
+            line.set_color(l, color.new(color.gray, 50))
+            line.set_style(l, line.style_dotted)
+            line.set_x2(l, bar_index)
+        box.set_bgcolor(pBox, color.new(color.gray, 88))
+        box.set_border_color(pBox, color.new(color.gray, 60))
+        box.set_right(pBox, bar_index)
+        pSide := 0
+        if todayTxt == "setup čaka"
+            todayTxt := "setup preklican"
+    else if pSide != 0
+        line.set_x2(plE, bar_index)
+        line.set_x2(plS, bar_index)
+        line.set_x2(plT, bar_index)
+        box.set_right(pBox, bar_index)
+if aSide != 0
+    line.set_x2(alE, bar_index)
+    line.set_x2(alS, bar_index)
+    line.set_x2(alT, bar_index)
+
+// 3) new setups on this bar's close (newest replaces an older pending one)
+nSet = array.size(setSide)
+if nSet > 0 and aSide == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and inSess
+    for i = 0 to nSet - 1
+        int side = array.get(setSide, i)
+        float bot = array.get(setBot, i)
+        float top = array.get(setTop, i)
+        float st = array.get(setStop, i)
+        float entry = entryMode == "Rob" ? (side > 0 ? top : bot) : math.round_to_mintick((bot + top) / 2)
+        float risk = (entry - st) * side
+        if (not useTrend or trend * side > 0) and risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+            if pSide != 0
+                for l in array.from(plE, plS, plT)
+                    line.set_color(l, color.new(color.gray, 50))
+                    line.set_style(l, line.style_dotted)
+                box.set_bgcolor(pBox, color.new(color.gray, 88))
+            float tgt = entry + side * rr * risk
+            pSide := side
+            pEntry := entry
+            pStop := st
+            pInval := side > 0 ? bot : top
+            pBar := bar_index
+            nSetups += 1
+            color col = side > 0 ? colLong : colShort
+            pBox := box.new(array.get(setGap, i) - 2, top, bar_index, bot, border_color = color.new(col, 50),
+                 bgcolor = color.new(col, 85), text = "FVG", text_size = size.tiny, text_color = color.new(col, 20), text_halign = text.align_right)
+            plE := line.new(bar_index, entry, bar_index, entry, color = color.blue, style = line.style_dashed)
+            plS := line.new(bar_index, st, bar_index, st, color = color.red, style = line.style_dashed)
+            plT := line.new(bar_index, tgt, bar_index, tgt, color = color.green, style = line.style_dashed)
+            label.new(bar_index, side > 0 ? low : high, (side > 0 ? "LONG" : "SHORT") + " setup\nE " + str.tostring(entry) +
+                 "\nSL " + str.tostring(st) + "\nTP " + str.tostring(tgt, format.mintick) + "\nSL/TP takoj, ne premikaj",
+                 color = color.new(col, 20), textcolor = color.white, size = size.small,
+                 style = side > 0 ? label.style_label_up : label.style_label_down)
+            todayTxt := "setup čaka"
+            alert(syminfo.ticker + " FVG Pro: " + (side > 0 ? "LONG" : "SHORT") + " setup — limit " + str.tostring(entry) +
+                 ", SL " + str.tostring(st) + ", TP " + str.tostring(tgt, format.mintick) +
+                 ". Nastavi SL in TP ob vstopu in ju ne premikaj. Velikost: " + str.tostring(qty) + " pogodbi.", alert.freq_once_per_bar_close)
+
+// daily limit reached → one alert, panel says the day is done
+var bool capAlerted = false
+if newDay
+    capAlerted := false
+if dayTrades >= maxTrades and aSide == 0 and not capAlerted
+    capAlerted := true
+    alert(syminfo.ticker + " FVG Pro: dnevni limit (" + str.tostring(maxTrades) + ") dosežen — konec trgovanja za danes.", alert.freq_once_per_bar_close)
+
+// ── Table and "Danes" panel ──────────────────────────────────────────────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 16, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = nWins + nLoss
+    float wr = n > 0 ? 100.0 * nWins / n : 0.0
+    int nxt = 1440
+    if s1On
+        nxt := math.min(nxt, minsUntil(s1, modOpen))
+    if s2On
+        nxt := math.min(nxt, minsUntil(s2, modOpen))
+    if s3On
+        nxt := math.min(nxt, minsUntil(s3, modOpen))
+    string sessTxt = inSess ? "v seji ✓" : "naslednja čez " + str.tostring(int(nxt / 60)) + " h " + str.tostring(nxt % 60) + " min"
+    table.cell(tb, 0, 0, "FVG Pro v2", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period + " · " + str.tostring(rr, "#.##") + "R · " + (custom ? "po meri" : str.substring(mode, 0, str.pos(mode, ":"))), text_color = color.white)
+    table.cell(tb, 0, 1, "Danes", text_color = color.yellow)
+    table.cell(tb, 1, 1, todayTxt, text_color = color.yellow)
+    table.cell(tb, 0, 2, "Seja", text_color = color.white)
+    table.cell(tb, 1, 2, sessTxt, text_color = color.white)
+    table.cell(tb, 0, 3, "Trade-i (setupi)", text_color = color.white)
+    table.cell(tb, 1, 3, str.tostring(n) + " (" + str.tostring(nSetups) + ")", text_color = color.white)
+    table.cell(tb, 0, 4, "Win rate", text_color = color.white)
+    table.cell(tb, 1, 4, str.tostring(wr, "#.0") + "% (cilj " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
+    table.cell(tb, 0, 5, "R na trade", text_color = color.white)
+    table.cell(tb, 1, 5, n > 0 ? str.tostring(sumR / n, "+#.##;-#.##") + "R" : "–", text_color = sumR >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 6, "Dni s trade-om", text_color = color.white)
+    table.cell(tb, 1, 6, nDays > 0 ? str.tostring(100.0 * nTradeDays / nDays, "#") + "% (" + str.tostring(nTradeDays) + "/" + str.tostring(nDays) + ")" : "–", text_color = color.white)
+    table.cell(tb, 0, 7, "Najdaljša serija izgub", text_color = color.white)
+    table.cell(tb, 1, 7, str.tostring(maxStreak), text_color = color.white)
+    table.cell(tb, 0, 8, "Zadnjih 10", text_color = color.white)
+    table.cell(tb, 1, 8, last10 == "" ? "–" : last10, text_color = color.white)
+    table.cell(tb, 0, 9, "Neto (brez stroškov)", text_color = color.white)
+    table.cell(tb, 1, 9, "$" + str.tostring(sumUsd, "#,###"), text_color = sumUsd >= 0 ? color.lime : color.red)
+    if showRules
+        bool done = dayTrades >= maxTrades
+        table.cell(tb, 0, 10, "MOJA PRAVILA", text_color = color.aqua)
+        table.cell(tb, 1, 10, "", text_color = color.aqua)
+        table.cell(tb, 0, 11, "1 Simbol in velikost", text_color = color.white)
+        table.cell(tb, 1, 11, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog. (vedno enako)" : "✗ samo MNQ ali MGC!",
+             text_color = allowedSym ? color.lime : color.red)
+        table.cell(tb, 0, 12, "2 Trade-i danes", text_color = color.white)
+        table.cell(tb, 1, 12, str.tostring(dayTrades) + " / " + str.tostring(maxTrades) + (done ? " — konec za danes" : ""),
+             text_color = done ? color.red : color.lime)
+        table.cell(tb, 0, 13, "3 Moje ure (11–18 SLO)", text_color = color.white)
+        table.cell(tb, 1, 13, inMyHours ? "zdaj ✓" : "ne zdaj", text_color = inMyHours ? color.lime : color.gray)
+        table.cell(tb, 0, 14, "4 SL in TP", text_color = color.white)
+        table.cell(tb, 1, 14, "ob vstopu, nikoli ne premikaj", text_color = color.white)
+        table.cell(tb, 0, 15, "5 Brez impulznih vstopov", text_color = color.white)
+        table.cell(tb, 1, 15, "samo na setup tega indikatorja", text_color = color.white)
+
+// rule 1: loud warning on any other symbol (GC1! cost −$4,320 in two trades)
+if ruleSymbols and not allowedSym and barstate.islast
+    var table warn = table.new(position.bottom_center, 1, 1, bgcolor = color.new(color.red, 10))
+    table.cell(warn, 0, 0, "⚠ PRAVILO 1: trguj samo MNQ (2 pogodbi) ali MGC (1). Ta graf: " + syminfo.ticker +
+         ". Dva trade-a na GC1! sta te stala −$4,320.", text_color = color.white, text_size = size.large)

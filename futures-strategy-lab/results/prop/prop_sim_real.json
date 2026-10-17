@@ -1,0 +1,266 @@
+{
+ "leto|topstep real": {
+  "stats": {
+   "trades": 25,
+   "wr": 0.64,
+   "exp": 0.31121302994018885,
+   "pf": 2.691210469462068,
+   "net": 3037.4799999999564,
+   "dd": 748.4858593750109,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 50,
+  "win_days_per_week": 0.7272727272727273,
+  "worst_day": -594.96,
+  "replay": {
+   "paths": 1,
+   "p_pass": 1.0,
+   "med_days_to_pass": 40.0,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "leto|topstep proxy": {
+  "stats": {
+   "trades": 24,
+   "wr": 0.7083333333333334,
+   "exp": 0.3396324108688495,
+   "pf": 4.353217843072953,
+   "net": 3898.38399999991,
+   "dd": 725.9960000000245,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 51,
+  "win_days_per_week": 0.7272727272727273,
+  "worst_day": -415.21600000002303,
+  "replay": {
+   "paths": 1,
+   "p_pass": 1.0,
+   "med_days_to_pass": 41.0,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "leto|ftmo real": {
+  "stats": {
+   "trades": 25,
+   "wr": 0.64,
+   "exp": 0.2576077628421353,
+   "pf": 2.1460547114642363,
+   "net": 3351.564882812366,
+   "dd": 1368.7287890625273,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 50,
+  "win_days_per_week": 1.0909090909090908,
+  "worst_day": -736.9141406250109,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "leto|ftmo proxy": {
+  "stats": {
+   "trades": 24,
+   "wr": 0.7083333333333334,
+   "exp": 0.3076423869619966,
+   "pf": 2.876951990432158,
+   "net": 4174.603999999887,
+   "dd": 1322.6560000000254,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 51,
+  "win_days_per_week": 1.0909090909090908,
+  "worst_day": -614.5800000000035,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "ext|topstep real": {
+  "stats": {
+   "trades": 31,
+   "wr": 0.5161290322580645,
+   "exp": 0.11622126651317395,
+   "pf": 1.0636940928053948,
+   "net": 125.08488281242364,
+   "dd": 1041.8648828125345,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 50,
+  "win_days_per_week": 0.6363636363636364,
+  "worst_day": -491.27609375000725,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "ext|topstep proxy": {
+  "stats": {
+   "trades": 31,
+   "wr": 0.5806451612903226,
+   "exp": 0.13657287195153472,
+   "pf": 1.3318876423154484,
+   "net": 591.5259999999682,
+   "dd": 708.7640000000072,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 51,
+  "win_days_per_week": 0.5454545454545454,
+  "worst_day": -409.7200000000023,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "ext|ftmo real": {
+  "stats": {
+   "trades": 31,
+   "wr": 0.5483870967741935,
+   "exp": 0.13248992387800027,
+   "pf": 1.2385226900864457,
+   "net": 1196.7248828123866,
+   "dd": 1348.8117187500163,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 50,
+  "win_days_per_week": 1.0,
+  "worst_day": -736.9141406250109,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ },
+ "ext|ftmo proxy": {
+  "stats": {
+   "trades": 31,
+   "wr": 0.6129032258064516,
+   "exp": 0.14151260505495059,
+   "pf": 1.4438113988423047,
+   "net": 2030.6199999998876,
+   "dd": 1322.6560000000252,
+   "tpd": null
+  },
+  "start": "2026-08-06 00:00:00-04:00",
+  "end": "2026-10-15 12:30:00-04:00",
+  "days": 51,
+  "win_days_per_week": 1.0909090909090908,
+  "worst_day": -680.7439999999851,
+  "replay": {
+   "paths": 1,
+   "p_pass": 0.0,
+   "med_days_to_pass": null,
+   "p_bust": 0.0,
+   "p_bust_eval": null,
+   "p_bust_funded": 0.0,
+   "p_any_payout": 0.0,
+   "payout_per_month": 0.0,
+   "payout_per_month_p10_p50_p90": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "payouts_count_per_month": 0.0,
+   "med_funded_days_to_first_payout": null
+  }
+ }
+}

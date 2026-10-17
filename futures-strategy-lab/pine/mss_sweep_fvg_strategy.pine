@@ -1,0 +1,331 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// MSS + Liquidity Sweep + FVG Respect (fixed 2R)
+//
+// Mirrors futures-strategy-lab/lab/mss_fvg.py rule for rule.
+//
+// RULES (bullish; bearish mirrors)
+//   1. Swings confirmed `Pivot length` bars after they print.
+//      Downtrend context: the last swing high is a LOWER HIGH (LH).
+//   2. MSS: a candle CLOSES above that LH.
+//   3. Liquidity sweep: the leg from the LH to the MSS traded below the last
+//      swing low that existed before the LH (sell-side liquidity taken).
+//   4. FVG: the most recent bullish gap in the MSS leg (or one forming up to
+//      3 bars after the MSS).
+//   5. Respect: a candle trades into the FVG and CLOSES back above it ("Strict"),
+//      or at least not below it ("Loose"). Enter at the next bar's open.
+//   6. Stop: 20 ticks below the FVG (input). Target: 2R.
+//   7. The setup dies if a candle closes through the FVG or after 20 bars.
+//      Max 2 trades per Globex day, flat by 15:55 New York.
+//
+// Sizing: 2 MNQ / 1 MGC automatically. Commission $0.62 per contract per side
+// (set $0.82 for MGC), 1 tick slippage.
+// Results are hypothetical. Not financial advice.
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("MSS + Sweep + FVG Respect (2R)", shorttitle = "MSS FVG", overlay = true, pyramiding = 0,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false, max_bars_back = 500,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300)
+
+G1 = "Setup"
+pivotLen  = input.int(3, "Pivot length (swing confirmation bars)", minval = 1, group = G1)
+minFvgAtr = input.float(0.10, "Min FVG size × ATR(14)", minval = 0, step = 0.05, group = G1)
+fvgAfter  = input.int(3, "Wait up to N bars after MSS for the FVG", minval = 0, maxval = 10, group = G1)
+respect   = input.string("Strict", "Respect candle", options = ["Strict", "Loose"], group = G1,
+     tooltip = "Strict: touches the FVG and closes back beyond it. Loose: touches it and does not close through it.")
+expiryBars = input.int(20, "FVG valid for N bars", minval = 1, group = G1)
+
+G2 = "Risk"
+stopTicks  = input.int(20, "Stop: ticks beyond the FVG", minval = 0, group = G2)
+rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+minRiskTk  = input.int(4, "Skip if stop is closer than N ticks", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Skip if stop is wider than N × ATR", minval = 0.5, group = G2)
+maxTrades  = input.int(2, "Max trades per Globex day", minval = 1, group = G2)
+qtyInput   = input.int(0, "Contracts (0 = auto: MNQ 2, MGC 1, else 1)", minval = 0, group = G2)
+
+G3 = "Sessions (New York time, HHMM-HHMM)"
+useS1  = input.bool(true, "Asia", inline = "s1", group = G3)
+sess1  = input.string("2000-0000", "", inline = "s1", group = G3)
+useS2  = input.bool(true, "London + NY", inline = "s2", group = G3)
+sess2  = input.string("0000-1530", "", inline = "s2", group = G3)
+useS3  = input.bool(false, "Extra", inline = "s3", group = G3)
+sess3  = input.string("1000-1300", "", inline = "s3", group = G3)
+flatHM = input.string("1555", "Flatten all at (HHMM)", group = G3)
+
+G4 = "Display"
+showDraw  = input.bool(true, "Draw MSS, sweeps and FVGs", group = G4)
+showTable = input.bool(true, "Stats table", group = G4)
+goalWr    = input.float(60.0, "Goal: win rate %", group = G4)
+
+// ── Helpers (same as FVG Pro) ────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+flatMin = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen  = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+inSess   = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))
+qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : syminfo.root == "MGC" ? 1 : 1
+tick = syminfo.mintick
+atr  = ta.atr(14)
+
+gapAt(int k, int side) =>
+    bool ok = false
+    float bot = na
+    float top = na
+    if side > 0 and low[k] > high[k + 2] and (low[k] - high[k + 2]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k + 2]
+        top := low[k]
+    if side < 0 and high[k] < low[k + 2] and (low[k + 2] - high[k]) >= minFvgAtr * atr[k]
+        ok := true
+        bot := high[k]
+        top := low[k + 2]
+    [ok, bot, top]
+
+// ── Swings: last / previous swing high and low, plus their history ───────────
+hiR = ta.highest(high, pivotLen)
+loR = ta.lowest(low, pivotLen)
+var float sh = na
+var float psh = na
+var int   shBar = na
+var float sl = na
+var float psl = na
+var int   slBar = na
+var array<int>   shBars = array.new<int>()
+var array<float> shVals = array.new<float>()
+var array<int>   slBars = array.new<int>()
+var array<float> slVals = array.new<float>()
+if bar_index >= 2 * pivotLen
+    if high[pivotLen] > hiR[pivotLen + 1] and high[pivotLen] >= hiR
+        psh := sh
+        sh := high[pivotLen]
+        shBar := bar_index - pivotLen
+        array.push(shBars, shBar)
+        array.push(shVals, sh)
+        if array.size(shBars) > 200
+            array.shift(shBars)
+            array.shift(shVals)
+    if low[pivotLen] < loR[pivotLen + 1] and low[pivotLen] <= loR
+        psl := sl
+        sl := low[pivotLen]
+        slBar := bar_index - pivotLen
+        array.push(slBars, slBar)
+        array.push(slVals, sl)
+        if array.size(slBars) > 200
+            array.shift(slBars)
+            array.shift(slVals)
+
+// last swing value confirmed at a bar earlier than `before`
+lastBefore(array<int> bars, array<float> vals, int before) =>
+    float v = na
+    int n = array.size(bars)
+    if n > 0
+        for j = n - 1 to 0
+            if na(v) and array.get(bars, j) < before
+                v := array.get(vals, j)
+    v
+
+// ── 1-4: MSS with a liquidity sweep, then its FVG ────────────────────────────
+var int usedUp = na
+var int usedDn = na
+// armed FVGs: side, bot, top, born bar ; pending MSS waiting for an FVG: side, mss bar
+var array<int>   aSide = array.new<int>()
+var array<float> aBot  = array.new<float>()
+var array<float> aTop  = array.new<float>()
+var array<int>   aBorn = array.new<int>()
+var array<int>   pSide = array.new<int>()
+var array<int>   pMss  = array.new<int>()
+
+for s = 0 to 1
+    int side = s == 0 ? 1 : -1
+    bool mss = false
+    int legStart = na
+    if side > 0 and bar_index > 2 * pivotLen
+        mss := not na(psh) and sh < psh and close > sh and (na(usedUp) or usedUp != shBar)
+        if mss
+            usedUp := shBar
+            legStart := shBar
+    if side < 0 and bar_index > 2 * pivotLen
+        mss := not na(psl) and sl > psl and close < sl and (na(usedDn) or usedDn != slBar)
+        if mss
+            usedDn := slBar
+            legStart := slBar
+    if mss
+        // leg extreme (earliest bar holding it) from the LH/HL to now
+        int span = math.min(bar_index - legStart, 400)
+        float ext = side > 0 ? low[span] : high[span]
+        int extOff = span
+        for j = span to 0
+            if side > 0 and low[j] < ext
+                ext := low[j]
+                extOff := j
+            if side < 0 and high[j] > ext
+                ext := high[j]
+                extOff := j
+        float liq = side > 0 ? lastBefore(slBars, slVals, legStart) : lastBefore(shBars, shVals, legStart)
+        bool swept = not na(liq) and (side > 0 ? ext < liq : ext > liq)
+        if swept
+            if showDraw
+                line.new(bar_index - extOff, liq, bar_index, liq, color = color.new(color.gray, 20), style = line.style_dotted)
+                label.new(bar_index, side > 0 ? high : low, "MSS", color = color.new(color.white, 100),
+                     textcolor = side > 0 ? color.teal : color.red, style = side > 0 ? label.style_label_down : label.style_label_up, size = size.tiny)
+            // most recent FVG already formed inside the leg
+            bool got = false
+            int lastOff = extOff - 2
+            if lastOff >= 0
+                for off = 0 to lastOff
+                    if not got
+                        [ok, bot, top] = gapAt(off, side)
+                        if ok
+                            got := true
+                            array.push(aSide, side)
+                            array.push(aBot, bot)
+                            array.push(aTop, top)
+                            array.push(aBorn, bar_index)
+            if not got
+                array.push(pSide, side)
+                array.push(pMss, bar_index)
+
+// MSS still waiting for its FVG (oldest first)
+if array.size(pSide) > 0
+    kS = array.new<int>()
+    kM = array.new<int>()
+    for w = 0 to array.size(pSide) - 1
+        int ps = array.get(pSide, w)
+        int pm = array.get(pMss, w)
+        if pm == bar_index
+            array.push(kS, ps)
+            array.push(kM, pm)
+        else
+            [ok, bot, top] = gapAt(0, ps)
+            if ok
+                array.push(aSide, ps)
+                array.push(aBot, bot)
+                array.push(aTop, top)
+                array.push(aBorn, bar_index)
+            else if bar_index - pm < fvgAfter
+                array.push(kS, ps)
+                array.push(kM, pm)
+    pSide := kS
+    pMss := kM
+
+// ── 5-7: respect → signal ────────────────────────────────────────────────────
+sigSide = array.new<int>()
+sigStop = array.new<float>()
+if array.size(aSide) > 0
+    kSide = array.new<int>()
+    kBot  = array.new<float>()
+    kTop  = array.new<float>()
+    kBorn = array.new<int>()
+    for z = 0 to array.size(aSide) - 1
+        int side = array.get(aSide, z)
+        float bot = array.get(aBot, z)
+        float top = array.get(aTop, z)
+        int born = array.get(aBorn, z)
+        bool keep = true
+        if born != bar_index
+            if bar_index - born > expiryBars
+                keep := false
+            else if (side > 0 and close < bot) or (side < 0 and close > top)
+                keep := false
+            else
+                bool touched = side > 0 ? low <= top : high >= bot
+                bool held = respect == "Strict" ? (side > 0 ? close > top : close < bot) : (side > 0 ? close >= bot : close <= top)
+                if touched and held
+                    keep := false
+                    if inSess
+                        array.push(sigSide, side)
+                        array.push(sigStop, side > 0 ? bot - stopTicks * tick : top + stopTicks * tick)
+                        if showDraw
+                            box.new(born - 2, top, bar_index, bot, border_color = color.new(side > 0 ? color.teal : color.red, 30),
+                                 bgcolor = color.new(side > 0 ? color.teal : color.red, 85), text = "FVG", text_color = color.gray, text_size = size.tiny)
+        if keep
+            array.push(kSide, side)
+            array.push(kBot, bot)
+            array.push(kTop, top)
+            array.push(kBorn, born)
+    aSide := kSide
+    aBot := kBot
+    aTop := kTop
+    aBorn := kBorn
+
+// ── Orders (mirrors lab/engine.py) ───────────────────────────────────────────
+var int dayKey = na
+var int dayTrades = 0
+var int lastEntries = 0
+curDay = gday(time)
+if na(dayKey) or curDay != dayKey
+    dayKey := curDay
+    dayTrades := 0
+entries = strategy.closedtrades + strategy.opentrades
+if entries > lastEntries
+    dayTrades += entries - lastEntries
+lastEntries := entries
+
+nextNewDay = gday(time_close) != curDay
+nextAfter  = afterFlat(modClose)
+nSig = array.size(sigSide)
+if nSig > 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and not nextAfter and not nextNewDay
+    for i = 0 to nSig - 1
+        int side = array.get(sigSide, i)
+        float st = array.get(sigStop, i)
+        float risk = (close - st) * side
+        if risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+            strategy.cancel_all()
+            float tgt = close + side * rr * risk
+            if side > 0
+                strategy.entry("MSS L", strategy.long, qty = qty)
+                strategy.exit("X L", "MSS L", stop = st, limit = tgt)
+            else
+                strategy.entry("MSS S", strategy.short, qty = qty)
+                strategy.exit("X S", "MSS S", stop = st, limit = tgt)
+            if showDraw
+                line.new(bar_index, st, bar_index + 10, st, color = color.red)
+                line.new(bar_index, tgt, bar_index + 10, tgt, color = color.blue, style = line.style_dashed)
+                label.new(bar_index, side > 0 ? low : high, side > 0 ? "▲" : "▼", color = color.new(color.white, 100),
+                     textcolor = side > 0 ? color.lime : color.red, style = side > 0 ? label.style_label_up : label.style_label_down)
+
+if strategy.position_size != 0 and (nextAfter or nextNewDay)
+    strategy.close_all(comment = "EOD")
+
+bgcolor(inSess ? color.new(color.gray, 95) : na, title = "Setup session")
+
+// ── Stats table ──────────────────────────────────────────────────────────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = strategy.closedtrades
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    if n > 0
+        for t = 0 to n - 1
+            float p = strategy.closedtrades.profit(t)
+            if p > 0
+                wins += 1
+                gw += p
+            else
+                gl -= p
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    table.cell(tb, 0, 0, "MSS + Sweep + FVG", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period, text_color = color.white)
+    table.cell(tb, 0, 1, "Trades", text_color = color.white)
+    table.cell(tb, 1, 1, str.tostring(n), text_color = color.white)
+    table.cell(tb, 0, 2, "Win rate", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(wr, "#.0") + "%  (goal " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
+    table.cell(tb, 0, 3, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 3, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 4, "Net P&L", text_color = color.white)
+    table.cell(tb, 1, 4, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 5, "Breakeven WR at " + str.tostring(rr, "#.#") + "R", text_color = color.white)
+    table.cell(tb, 1, 5, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)

@@ -1,0 +1,266 @@
+{
+ "gated": {
+  "real": {
+   "stats": {
+    "trades": 11,
+    "wr": 0.6363636363636364,
+    "exp": 0.40474235983130114,
+    "pf": 3.0679958436160533,
+    "net": 1273.7199999999998,
+    "dd": 297.48,
+    "tpd": 0.22
+   },
+   "prop": {
+    "win_days_per_week": 0.6,
+    "worst_day": -297.48,
+    "trail_eod_dd": 297.48,
+    "days_traded": 11,
+    "pos_day_share": 0.6363636363636364,
+    "best_day": 431.52
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    }
+   ]
+  },
+  "proxy": {
+   "stats": {
+    "trades": 11,
+    "wr": 0.7272727272727273,
+    "exp": 0.5291040771065308,
+    "pf": 6.597853751186574,
+    "net": 1768.361999999956,
+    "dd": 275.08800000001156,
+    "tpd": 0.22
+   },
+   "prop": {
+    "win_days_per_week": 0.7,
+    "worst_day": -207.60800000001151,
+    "trail_eod_dd": 275.08800000001156,
+    "days_traded": 11,
+    "pos_day_share": 0.7272727272727273,
+    "best_day": 432.53599999997414
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    }
+   ]
+  }
+ },
+ "pre_gate": {
+  "real": {
+   "stats": {
+    "trades": 68,
+    "wr": 0.39705882352941174,
+    "exp": -0.12074258854010743,
+    "pf": 0.6499547403557161,
+    "net": -3194.3282812501566,
+    "dd": 4253.068281250151,
+    "tpd": 1.36
+   },
+   "prop": {
+    "win_days_per_week": 0.9,
+    "worst_day": -1103.0458593750072,
+    "trail_eod_dd": 4253.068281250152,
+    "days_traded": 42,
+    "pos_day_share": 0.30952380952380953,
+    "best_day": 1058.7399999999946
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "15min",
+     "win": "comex",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "5min",
+     "win": "late",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "30min",
+     "win": "lon_late",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "10min",
+     "win": "midday",
+     "mf": 0.15,
+     "chase": 0.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "30min",
+     "win": "asia",
+     "mf": 0.3,
+     "chase": 0.0
+    }
+   ]
+  },
+  "proxy": {
+   "stats": {
+    "trades": 69,
+    "wr": 0.4492753623188406,
+    "exp": -0.056770343449982726,
+    "pf": 0.8058113502077761,
+    "net": -1701.7800000001657,
+    "dd": 2991.572000000093,
+    "tpd": 1.38
+   },
+   "prop": {
+    "win_days_per_week": 1.0,
+    "worst_day": -884.9159999999929,
+    "trail_eod_dd": 2991.572000000093,
+    "days_traded": 39,
+    "pos_day_share": 0.358974358974359,
+    "best_day": 1043.1779999999928
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "15min",
+     "win": "comex",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "5min",
+     "win": "late",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "30min",
+     "win": "lon_late",
+     "mf": 0.3,
+     "chase": 0.0
+    },
+    {
+     "sym": "MNQ",
+     "tf": "10min",
+     "win": "midday",
+     "mf": 0.15,
+     "chase": 0.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "30min",
+     "win": "asia",
+     "mf": 0.3,
+     "chase": 0.0
+    }
+   ]
+  }
+ },
+ "leto": {
+  "real": {
+   "stats": {
+    "trades": 25,
+    "wr": 0.6,
+    "exp": 0.23080512929310856,
+    "pf": 1.9080445249553004,
+    "net": 1587.8048828124088,
+    "dd": 843.3258593750181,
+    "tpd": 0.5
+   },
+   "prop": {
+    "win_days_per_week": 1.0,
+    "worst_day": -491.27609375000725,
+    "trail_eod_dd": 843.3258593750181,
+    "days_traded": 23,
+    "pos_day_share": 0.6086956521739131,
+    "best_day": 431.52
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "15min",
+     "win": "comex",
+     "mf": 0.3,
+     "chase": 0.0
+    }
+   ]
+  },
+  "proxy": {
+   "stats": {
+    "trades": 24,
+    "wr": 0.6666666666666666,
+    "exp": 0.29164737500857013,
+    "pf": 2.4797154312677367,
+    "net": 2044.5819999999333,
+    "dd": 812.568000000013,
+    "tpd": 0.48
+   },
+   "prop": {
+    "win_days_per_week": 1.0,
+    "worst_day": -409.7200000000023,
+    "trail_eod_dd": 812.568000000013,
+    "days_traded": 21,
+    "pos_day_share": 0.7142857142857143,
+    "best_day": 432.53599999997414
+   },
+   "days": 50,
+   "legs": [
+    {
+     "sym": "MNQ",
+     "tf": "15min",
+     "win": "london",
+     "mf": 0.3,
+     "chase": 1.0
+    },
+    {
+     "sym": "MGC",
+     "tf": "15min",
+     "win": "comex",
+     "mf": 0.3,
+     "chase": 0.0
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,221 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Liquidity Swings — PREBOJ + RETEST (MNQ 15m, 2R, 1 trade na dan)
+//
+// Cone so izračunane po logiki "Liquidity Swings [LuxAlgo]"
+// (CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/, © LuxAlgo):
+// pivot high/low (Pivot Lookback na vsako stran), cona swing high = high do
+// low pivot sveče ("Full Range") ali do max(open, close) ("Wick Extremity");
+// aktivna je samo zadnja cona high in zadnja cona low; "crossed" = zaprtje
+// nad vrhom (pod dnom).
+//
+// Ista logika kot futures-strategy-lab/lab/liq_swings.py (PRESET_MNQ15):
+//   • LONG: sveča zapre NAD zadnjo swing-high cono (preboj likvidnosti) →
+//     kasneje se cena vrne do vrha cone (low ≤ vrh) in sveča zapre nad njim
+//     (retest drži) → market vstop na naslednjem baru.
+//     SL pod dnom cone (ali pod low retest sveče, kar je nižje) − 2 ticka.
+//   • SHORT zrcalno na swing-low coni.
+//   • TP 2R. En vstop na cono. Seja London + NY 02:00–12:00 NY
+//     (= 08:00–18:00 v Sloveniji). Max 1 trade na Globex dan, zaprto do 15:55 NY.
+//
+// Python backtest MNQ 15m (Yahoo, 6. 8.–15. 10. 2026, provizija $0.62/stran,
+// 1 tick slippage), seznam: results/liq_swings/trades_MNQ_15m.csv
+//   43 trade-ov, 58 % WR, +0.67R, PF 2.63, +$6.790, max DD $1.105
+//   in-sample 25 tr. 60 % / +0.76R · nevideni del 18 tr. 56 % / +0.55R
+//   pri 1.5R: 65 % WR, +0.58R, +$5.923 (in-sample 64 %, nevideni 67 %)
+// Izbrano iz 1.728 kombinacij (način, pivot, cona, count, EMA, seja, RR) na
+// in-sample delu. Preverjeno: MNQ 5m (−), MGC 15m (+0.19R), CL 5m (+0.19R)
+// → strategija je narejena za MNQ 15m.
+//
+// Pivot pravilo je enako kot v Pythonu (strogo levo, ≥ desno); preverjena je
+// sintaksa, ujemanje trade za trade s Pythonom NI preverjeno.
+// Hipotetični rezultati, ni finančni nasvet.
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("Liquidity Swings Retest — MNQ 15m (2R, 1/dan)", shorttitle = "LS Retest", overlay = true, pyramiding = 0,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false, max_bars_back = 500,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300)
+
+G1 = "Liquidity Swings"
+length   = input.int(5, "Pivot Lookback", minval = 1, group = G1)
+area     = input.string("Full Range", "Swing Area", options = ["Full Range", "Wick Extremity"], group = G1)
+minCount = input.int(0, "Min count (dotiki cone)", minval = 0, group = G1)
+
+G2 = "Tveganje"
+rr         = input.float(2.0, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
+minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
+maxTrades  = input.int(1, "Max trade-ov na Globex dan", minval = 1, group = G2)
+qtyInput   = input.int(0, "Pogodbe (0 = auto: MNQ 2, MGC 1, drugo 1)", minval = 0, group = G2)
+emaLen     = input.int(0, "EMA naklon filter (0 = izklop)", minval = 0, group = G2)
+
+G3 = "Seje (New York čas, HHMM-HHMM)"
+useS1  = input.bool(true, "London + NY", inline = "s1", group = G3)
+sess1  = input.string("0200-1200", "", inline = "s1", group = G3)
+useS2  = input.bool(false, "Asia", inline = "s2", group = G3)
+sess2  = input.string("2000-0000", "", inline = "s2", group = G3)
+flatHM = input.string("1555", "Zapri vse ob (HHMM, NY)", group = G3)
+
+G4 = "Prikaz"
+showZones = input.bool(true, "Pokaži cone", group = G4)
+showTable = input.bool(true, "Tabela", group = G4)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+flatMin = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen  = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+inSess = (useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen))
+qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : 1
+tick = syminfo.mintick
+buf  = bufTicks * tick
+atr  = ta.atr(14)
+emaS = ta.ema(close, math.max(emaLen, 1))
+int emaTrend = emaLen == 0 ? 0 : int(math.sign(emaS - emaS[3]))
+
+// ── Liquidity Swings zones ───────────────────────────────────────────────────
+hiR = ta.highest(high, length)
+loR = ta.lowest(low, length)
+bool isPh = bar_index >= 2 * length and high[length] > hiR[length + 1] and high[length] >= hiR
+bool isPl = bar_index >= 2 * length and low[length] < loR[length + 1] and low[length] <= loR
+
+var float phTop = na
+var float phBtm = na
+var int   phCnt = 0
+var bool  phCr = false
+var int   phId = -1
+var float plTop = na
+var float plBtm = na
+var int   plCnt = 0
+var bool  plCr = false
+var int   plId = -1
+
+// counts (indicator: reset on the pivot bar, else add the bar `length` back)
+if isPh
+    phCnt := 0
+else if not na(phTop) and bar_index >= length
+    phCnt += low[length] < phTop and high[length] > phBtm ? 1 : 0
+if isPl
+    plCnt := 0
+else if not na(plTop) and bar_index >= length
+    plCnt += low[length] < plTop and high[length] > plBtm ? 1 : 0
+
+if isPh
+    phTop := high[length]
+    phBtm := area == "Full Range" ? low[length] : math.max(close[length], open[length])
+    phId := bar_index - length
+    phCr := false
+    if showZones
+        box.new(bar_index - length, phTop, bar_index + 5, phBtm, border_color = na, bgcolor = color.new(color.red, 80))
+else if not na(phTop)
+    phCr := phCr or close > phTop
+if isPl
+    plTop := area == "Full Range" ? high[length] : math.min(close[length], open[length])
+    plBtm := low[length]
+    plId := bar_index - length
+    plCr := false
+    if showZones
+        box.new(bar_index - length, plTop, bar_index + 5, plBtm, border_color = na, bgcolor = color.new(color.teal, 80))
+else if not na(plBtm)
+    plCr := plCr or close < plBtm
+
+plot(phCr ? na : phTop, "Swing high", color = color.new(color.red, 30), style = plot.style_linebr)
+plot(plCr ? na : plBtm, "Swing low", color = color.new(color.teal, 30), style = plot.style_linebr)
+
+// ── Break + retest signal (state of the previous bar decides "was crossed") ─
+var int usedH = -2
+var int usedL = -2
+bool phWasCr = phCr[1] and phId[1] == phId
+bool plWasCr = plCr[1] and plId[1] == plId
+bool longSig  = phId >= 0 and not na(phTop) and phCnt >= minCount and usedH != phId and phWasCr and low <= phTop and close > phTop
+bool shortSig = plId >= 0 and not na(plBtm) and plCnt >= minCount and usedL != plId and plWasCr and high >= plBtm and close < plBtm
+if longSig
+    usedH := phId          // the zone is spent even outside the session (same as Python)
+if shortSig
+    usedL := plId
+float longStop  = math.round_to_mintick(math.min(phBtm - buf, low - buf))
+float shortStop = math.round_to_mintick(math.max(plTop + buf, high + buf))
+riskOk(float stp, int side) =>
+    float r = (close - stp) * side
+    r >= minRiskTk * tick and (atr <= 0 or r <= maxRiskAtr * atr)
+bool longOk  = longSig and inSess and (emaLen == 0 or emaTrend == 1) and riskOk(longStop, 1)
+bool shortOk = shortSig and inSess and (emaLen == 0 or emaTrend == -1) and riskOk(shortStop, -1)
+// both on one bar: the later setup replaces the earlier one, as in lab/engine.py
+int   sigSide = shortOk ? -1 : longOk ? 1 : 0
+float sigStop = shortOk ? shortStop : longStop
+bool  sigOk = sigSide != 0
+
+// ── Orders (mirrors lab/engine.py: market entry on the next bar's open) ─────
+var int dayKey = na
+var int dayTrades = 0
+var int lastEntries = 0
+curDay = gday(time)
+if na(dayKey) or curDay != dayKey
+    dayKey := curDay
+    dayTrades := 0
+entries = strategy.closedtrades + strategy.opentrades
+if entries > lastEntries
+    dayTrades += entries - lastEntries
+lastEntries := entries
+nextNewDay = gday(time_close) != curDay
+nextAfter  = afterFlat(modClose)
+if sigOk and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and not nextAfter and not nextNewDay
+    float stp = sigStop
+    float risk = (close - stp) * sigSide
+    if risk > 0
+        float tgt = close + sigSide * rr * risk
+        if sigSide > 0
+            strategy.entry("LS L", strategy.long, qty = qty, comment = "LONG retest")
+            strategy.exit("X L", "LS L", stop = stp, limit = tgt, comment_profit = "TP", comment_loss = "SL")
+        else
+            strategy.entry("LS S", strategy.short, qty = qty, comment = "SHORT retest")
+            strategy.exit("X S", "LS S", stop = stp, limit = tgt, comment_profit = "TP", comment_loss = "SL")
+if strategy.position_size != 0 and (nextAfter or nextNewDay)
+    strategy.close_all(comment = "EOD")
+
+bgcolor(inSess ? color.new(color.gray, 95) : na, title = "Seja")
+plotshape(sigOk and sigSide > 0, "Long retest", shape.triangleup, location.belowbar, color.teal, size = size.tiny)
+plotshape(sigOk and sigSide < 0, "Short retest", shape.triangledown, location.abovebar, color.red, size = size.tiny)
+alertcondition(sigOk, "LS retest signal", "Liquidity Swings retest — vstop na naslednjem baru")
+
+// ── Table ────────────────────────────────────────────────────────────────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = strategy.closedtrades
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    if n > 0
+        for t = 0 to n - 1
+            float p = strategy.closedtrades.profit(t)
+            if p > 0
+                wins += 1
+                gw += p
+            else
+                gl -= p
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    table.cell(tb, 0, 0, "LS Retest", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period + " · " + str.tostring(rr, "#.##") + "R", text_color = color.white)
+    table.cell(tb, 0, 1, "Trade-i / WR", text_color = color.white)
+    table.cell(tb, 1, 1, str.tostring(n) + " / " + str.tostring(wr, "#.0") + "%", text_color = color.white)
+    table.cell(tb, 0, 2, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 2, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 3, "Neto", text_color = color.white)
+    table.cell(tb, 1, 3, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 4, "Break-even WR", text_color = color.white)
+    table.cell(tb, 1, 4, str.tostring(100.0 / (1 + rr), "#.0") + "%", text_color = color.white)
+    table.cell(tb, 0, 5, "Backtest MNQ 15m", text_color = color.white)
+    table.cell(tb, 1, 5, "58 % WR · +0.67R · PF 2.6", text_color = color.white)

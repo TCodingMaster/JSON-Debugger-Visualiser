@@ -1,0 +1,313 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Liq Sweep Entry — vstop ob liquidity sweepu BREZ FVG potrditve (ločena strategija)
+//
+// Ista logika kot futures-strategy-lab/lab/sweep_entry.py:
+//   • Likvidnost: potrjeni swing high/low (3 bari na vsako stran) + PDH/PDL,
+//     overnight high/low, Asia high/low, London high/low. Nivo je porabljen,
+//     ko ga cena prebije.
+//   • Način "Limit na likvidnosti" (privzeto): čakajoči limit na najbližjem
+//     nivoju (sell na high, buy na low), obnovljen vsak bar → vstop takoj,
+//     ko se sweep začne. SL = nivo ± 1.0 × ATR(14) + 2 ticka. TP = 1.5R.
+//   • Način "Po zaprtju nazaj": sveča pobere nivo in zapre nazaj → market
+//     vstop na naslednjem baru, SL za wickom.
+//   • Seje (New York čas): Asia 20:00–24:00 + London 02:00–05:00.
+//     Max 1 trade na Globex dan, vse zaprto do 15:55 NY.
+//
+// Python backtest (Yahoo, 6. 8. – 15. 10. 2026, s stroški, privzete nastavitve):
+//   MNQ 15m: 50 trade-ov, 50 % WR, +0.23R (nevideni podatki 65 %)
+//   MNQ 5m:  48 % WR, +0.16R
+//   MGC 15m / 5m: 20–22 % WR, −0.5R  → NE uporabljaj na zlatu
+// Za primerjavo: FVG Pro Kvaliteta na MNQ 15m = 68 % WR, +0.68R.
+// Ta strategija da trade skoraj vsak dan, a z manjšim edge-om.
+//
+// Opomba: session nivoji (PDH/PDL, overnight, Asia, London) so tu izračunani
+// neposredno v Pine; preverjena je samo sintaksa, ne ujemanje trade za trade.
+// Hipotetični rezultati, ni finančni nasvet.
+// ─────────────────────────────────────────────────────────────────────────────
+strategy("Liq Sweep Entry — MNQ (brez FVG, 1.5R, 1/dan)", shorttitle = "LiqSweep", overlay = true, pyramiding = 0,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     process_orders_on_close = false, calc_on_every_tick = false, max_bars_back = 500,
+     max_boxes_count = 300, max_lines_count = 300, max_labels_count = 300)
+
+G1 = "Vstop"
+mode       = input.string("Limit na likvidnosti", "Način vstopa", options = ["Limit na likvidnosti", "Po zaprtju nazaj"], group = G1)
+pivotLen   = input.int(3, "Pivot (bari za potrditev swinga)", minval = 1, group = G1)
+useSessLv  = input.bool(true, "Dodaj PDH/PDL, overnight, Asia, London nivoje", group = G1)
+maxDistAtr = input.float(1.5, "Limit samo, če je nivo bližje od N × ATR", minval = 0.1, step = 0.1, group = G1)
+
+G2 = "Tveganje"
+stopAtr    = input.float(1.0, "SL za nivojem: N × ATR(14) (način Limit)", minval = 0.1, step = 0.1, group = G2)
+bufTicks   = input.int(2, "SL buffer (ticki)", minval = 0, group = G2)
+rr         = input.float(1.5, "Reward : risk", minval = 0.5, step = 0.25, group = G2)
+minRiskTk  = input.int(4, "Preskoči, če je SL bližje od N tickov", minval = 0, group = G2)
+maxRiskAtr = input.float(3.0, "Preskoči, če je SL širši od N × ATR", minval = 0.5, group = G2)
+maxTradesIn = input.int(1, "Max trade-ov na Globex dan", minval = 1, group = G2)
+qtyInput   = input.int(0, "Pogodbe (0 = auto: MNQ 2, MGC 1, drugo 1)", minval = 0, group = G2)
+
+G3 = "Seje (New York čas, HHMM-HHMM)"
+useS1  = input.bool(true, "Asia", inline = "s1", group = G3)
+sess1  = input.string("2000-0000", "", inline = "s1", group = G3)
+useS2  = input.bool(true, "London", inline = "s2", group = G3)
+sess2  = input.string("0200-0500", "", inline = "s2", group = G3)
+useS3  = input.bool(false, "Dodatna", inline = "s3", group = G3)
+sess3  = input.string("0830-1100", "", inline = "s3", group = G3)
+flatHM = input.string("1555", "Zapri vse ob (HHMM, NY)", group = G3)
+
+G4 = "Prikaz"
+showLv    = input.bool(true, "Pokaži nivo čakajočega limita", group = G4)
+showTable = input.bool(true, "Tabela", group = G4)
+goalWr    = input.float(60.0, "Cilj: WR %", group = G4)
+
+G5 = "Moja pravila (iz analize mojih trade-ov)"
+ruleSymbols = input.bool(true, "1) Samo MNQ in MGC (na drugih simbolih ni trade-ov + opozorilo)", group = G5)
+dailyCap    = input.int(2, "2) Dnevni limit trade-ov", minval = 1, group = G5)
+showMyHours = input.bool(true, "3) Osenči moje najboljše ure", group = G5)
+myHours     = input.string("0500-1200", "   Moje ure (New York čas = 11:00–18:00 v Sloveniji)", group = G5)
+maxTrades   = math.min(maxTradesIn, dailyCap)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+TZ = "America/New_York"
+minuteOfDay(t) => hour(t, TZ) * 60 + minute(t, TZ)
+hm(string s, int at) => int(str.tonumber(str.substring(s, at, at + 2))) * 60 + int(str.tonumber(str.substring(s, at + 2, at + 4)))
+inWindow(string s, int m) =>
+    int a = hm(s, 0)
+    int b = hm(s, 5)
+    b := b == 0 ? 1440 : b
+    a <= b ? (m >= a and m < b) : (m >= a or m < b)
+gday(t) =>
+    int t6 = t + 6 * 3600 * 1000
+    year(t6, TZ) * 10000 + month(t6, TZ) * 100 + dayofmonth(t6, TZ)
+flatMin = hm(flatHM, 0)
+afterFlat(int m) => m >= flatMin and m < 18 * 60
+modOpen  = minuteOfDay(time)
+modClose = minuteOfDay(time_close)
+allowedSym = syminfo.root == "MNQ" or syminfo.root == "MGC"
+inSess = ((useS1 and inWindow(sess1, modOpen)) or (useS2 and inWindow(sess2, modOpen)) or (useS3 and inWindow(sess3, modOpen))) and (not ruleSymbols or allowedSym)
+inMyHours = inWindow(myHours, modOpen)
+qty  = qtyInput > 0 ? qtyInput : syminfo.root == "MNQ" ? 2 : 1
+tick = syminfo.mintick
+buf  = bufTicks * tick
+atr  = ta.atr(14)
+
+// ── Session levels (computed natively; known only after each session ends) ──
+var float rthH = na
+var float rthL = na
+var float pdh = na
+var float pdl = na
+var float onH = na
+var float onL = na
+var float asH = na
+var float asL = na
+var float lnH = na
+var float lnL = na
+curDay = gday(time)
+newDay = curDay != gday(time[1])
+if newDay
+    if not na(rthH)
+        pdh := rthH
+        pdl := rthL
+    rthH := na
+    rthL := na
+    onH := na
+    onL := na
+    asH := na
+    asL := na
+    lnH := na
+    lnL := na
+bool isRth = modOpen >= 570 and modOpen < 960
+bool isOn  = not isRth and (modOpen >= 18 * 60 or modOpen < 570)
+if isRth
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+if isOn
+    onH := na(onH) ? high : math.max(onH, high)
+    onL := na(onL) ? low : math.min(onL, low)
+if modOpen >= 20 * 60
+    asH := na(asH) ? high : math.max(asH, high)
+    asL := na(asL) ? low : math.min(asL, low)
+if modOpen >= 120 and modOpen < 300
+    lnH := na(lnH) ? high : math.max(lnH, high)
+    lnL := na(lnL) ? low : math.min(lnL, low)
+// "known" flags, same as lab/features.py
+bool onKnown = modOpen >= 570 and modOpen < 18 * 60
+bool asKnown = modOpen < 18 * 60
+bool lnKnown = modOpen >= 300 and modOpen < 18 * 60
+
+// ── Liquidity pools ──────────────────────────────────────────────────────────
+hiR = ta.highest(high, pivotLen)
+loR = ta.lowest(low, pivotLen)
+var array<float> highs = array.new<float>()
+var array<float> lows  = array.new<float>()
+var array<float> usedLv = array.new<float>()   // session levels already added today
+if newDay
+    array.clear(usedLv)
+addOnce(array<float> arr, float lv) =>
+    if not na(lv) and not array.includes(usedLv, lv)
+        array.push(usedLv, lv)
+        array.push(arr, lv)
+if bar_index >= 2 * pivotLen
+    if high[pivotLen] > hiR[pivotLen + 1] and high[pivotLen] >= hiR
+        array.push(highs, high[pivotLen])
+    if low[pivotLen] < loR[pivotLen + 1] and low[pivotLen] <= loR
+        array.push(lows, low[pivotLen])
+if useSessLv
+    addOnce(highs, pdh)
+    addOnce(lows, pdl)
+    if onKnown
+        addOnce(highs, onH)
+        addOnce(lows, onL)
+    if asKnown
+        addOnce(highs, asH)
+        addOnce(lows, asL)
+    if lnKnown
+        addOnce(highs, lnH)
+        addOnce(lows, lnL)
+
+// pools traded through on this bar are spent
+float takenH = na
+float takenL = na
+if array.size(highs) > 0
+    keep = array.new<float>()
+    for x in highs
+        if high > x
+            takenH := na(takenH) ? x : math.max(takenH, x)
+        else
+            array.push(keep, x)
+    highs := keep
+if array.size(lows) > 0
+    keep = array.new<float>()
+    for x in lows
+        if low < x
+            takenL := na(takenL) ? x : math.min(takenL, x)
+        else
+            array.push(keep, x)
+    lows := keep
+if array.size(highs) > 300
+    array.shift(highs)
+if array.size(lows) > 300
+    array.shift(lows)
+
+// ── Signal on this bar's close ───────────────────────────────────────────────
+int   sigSide = 0
+float sigEntry = na
+float sigStop = na
+bool  sigMarket = false
+if inSess
+    if mode == "Po zaprtju nazaj"
+        if not na(takenH) and close < takenH
+            sigSide := -1
+            sigStop := high + buf
+            sigMarket := true
+        else if not na(takenL) and close > takenL
+            sigSide := 1
+            sigStop := low - buf
+            sigMarket := true
+    else
+        float up = na
+        float dn = na
+        for x in highs
+            if x > close
+                up := na(up) ? x : math.min(up, x)
+        for x in lows
+            if x < close
+                dn := na(dn) ? x : math.max(dn, x)
+        float du = not na(up) and up - close <= maxDistAtr * atr ? up - close : na
+        float dd = not na(dn) and close - dn <= maxDistAtr * atr ? close - dn : na
+        if not na(du) or not na(dd)
+            bool goShort = na(dd) or (not na(du) and du < dd)
+            float lv = goShort ? up : dn
+            sigSide := goShort ? -1 : 1
+            sigEntry := math.round_to_mintick(lv)
+            sigStop := math.round_to_mintick(goShort ? lv + stopAtr * atr + buf : lv - stopAtr * atr - buf)
+
+// ── Orders (mirrors lab/engine.py) ───────────────────────────────────────────
+var int dayKey = na
+var int dayTrades = 0
+var int lastEntries = 0
+if na(dayKey) or curDay != dayKey
+    dayKey := curDay
+    dayTrades := 0
+entries = strategy.closedtrades + strategy.opentrades
+if entries > lastEntries
+    dayTrades += entries - lastEntries
+lastEntries := entries
+
+nextNewDay = gday(time_close) != curDay
+nextAfter  = afterFlat(modClose)
+// a limit is valid for one bar only: cancel what was left from the previous bar
+if strategy.position_size == 0
+    strategy.cancel_all()
+if sigSide != 0 and strategy.position_size == 0 and dayTrades < maxTrades and not afterFlat(modOpen) and not nextAfter and not nextNewDay
+    float ref = sigMarket ? close : sigEntry
+    float risk = (ref - sigStop) * sigSide
+    if risk >= minRiskTk * tick and (atr <= 0 or risk <= maxRiskAtr * atr)
+        float tgt = ref + sigSide * rr * risk
+        if sigSide > 0
+            if sigMarket
+                strategy.entry("Sweep L", strategy.long, qty = qty, comment = "LONG po sweepu")
+            else
+                strategy.entry("Sweep L", strategy.long, qty = qty, limit = sigEntry, comment = "LONG na likvidnosti")
+            strategy.exit("X L", "Sweep L", stop = sigStop, limit = tgt, comment_profit = "TP", comment_loss = "SL")
+        else
+            if sigMarket
+                strategy.entry("Sweep S", strategy.short, qty = qty, comment = "SHORT po sweepu")
+            else
+                strategy.entry("Sweep S", strategy.short, qty = qty, limit = sigEntry, comment = "SHORT na likvidnosti")
+            strategy.exit("X S", "Sweep S", stop = sigStop, limit = tgt, comment_profit = "TP", comment_loss = "SL")
+        if showLv and not sigMarket
+            line.new(bar_index, sigEntry, bar_index + 1, sigEntry, color = sigSide > 0 ? color.teal : color.red, width = 2)
+
+if strategy.position_size != 0 and (nextAfter or nextNewDay)
+    strategy.close_all(comment = "EOD")
+
+bgcolor(inSess ? color.new(color.gray, 94) : na, title = "Seja")
+bgcolor(showMyHours and inMyHours ? color.new(color.blue, 95) : na, title = "Moje ure")
+
+var bool capAlerted = false
+if newDay
+    capAlerted := false
+if dayTrades >= maxTrades and strategy.position_size == 0 and not capAlerted
+    capAlerted := true
+    alert(syminfo.ticker + " Liq Sweep: dnevni limit (" + str.tostring(maxTrades) + ") dosežen — konec trgovanja za danes.", alert.freq_once_per_bar_close)
+
+// ── Table ────────────────────────────────────────────────────────────────────
+if showTable and barstate.islast
+    var table tb = table.new(position.top_right, 2, 9, bgcolor = color.new(color.black, 15), border_width = 1)
+    int n = strategy.closedtrades
+    int wins = 0
+    float gw = 0.0
+    float gl = 0.0
+    if n > 0
+        for t = 0 to n - 1
+            float p = strategy.closedtrades.profit(t)
+            if p > 0
+                wins += 1
+                gw += p
+            else
+                gl -= p
+    float wr = n > 0 ? 100.0 * wins / n : 0.0
+    table.cell(tb, 0, 0, "Liq Sweep Entry", text_color = color.white)
+    table.cell(tb, 1, 0, syminfo.root + " " + timeframe.period + " · " + str.tostring(rr, "#.##") + "R · " + mode, text_color = color.white)
+    table.cell(tb, 0, 1, "Trade-i", text_color = color.white)
+    table.cell(tb, 1, 1, str.tostring(n), text_color = color.white)
+    table.cell(tb, 0, 2, "Win rate", text_color = color.white)
+    table.cell(tb, 1, 2, str.tostring(wr, "#.0") + "% (cilj " + str.tostring(goalWr, "#") + "%)", text_color = wr >= goalWr ? color.lime : color.orange)
+    table.cell(tb, 0, 3, "Profit factor", text_color = color.white)
+    table.cell(tb, 1, 3, gl > 0 ? str.tostring(gw / gl, "#.00") : "–", text_color = color.white)
+    table.cell(tb, 0, 4, "Neto", text_color = color.white)
+    table.cell(tb, 1, 4, "$" + str.tostring(strategy.netprofit, "#,###"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 5, "Trade-i danes", text_color = color.white)
+    table.cell(tb, 1, 5, str.tostring(dayTrades) + " / " + str.tostring(maxTrades) + (dayTrades >= maxTrades ? " — konec za danes" : ""), text_color = dayTrades >= maxTrades ? color.red : color.lime)
+    table.cell(tb, 0, 6, "Simbol", text_color = color.white)
+    table.cell(tb, 1, 6, allowedSym ? "✓ " + syminfo.root + " · " + str.tostring(qty) + " pog." : "✗ samo MNQ ali MGC!", text_color = allowedSym ? color.lime : color.red)
+    table.cell(tb, 0, 7, "Moje ure (11–18 SLO)", text_color = color.white)
+    table.cell(tb, 1, 7, inMyHours ? "zdaj ✓" : "ne zdaj", text_color = inMyHours ? color.lime : color.gray)
+    table.cell(tb, 0, 8, "Backtest", text_color = color.white)
+    table.cell(tb, 1, 8, syminfo.root == "MGC" ? "MGC: negativen (−0.5R) — ne uporabljaj" : "MNQ 15m: 50 % WR, +0.23R", text_color = syminfo.root == "MGC" ? color.red : color.white)
+
+if ruleSymbols and not allowedSym and barstate.islast
+    var table warn = table.new(position.bottom_center, 1, 1, bgcolor = color.new(color.red, 10))
+    table.cell(warn, 0, 0, "⚠ PRAVILO 1: samo MNQ (2 pogodbi) ali MGC (1). Ta graf: " + syminfo.ticker + " — brez trade-ov.",
+         text_color = color.white, text_size = size.large)
