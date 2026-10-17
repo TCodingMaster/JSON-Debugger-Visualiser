@@ -43,7 +43,7 @@ from .features import hm
 
 DEF = dict(levels=("pd", "asia", "london", "on", "eq"), win=("02:00", "11:30"), look=8, mss_n=6, disp=0.8,
            er_min=0.0, atr_exp=0.0, atr_slow=96, mf=0.15, post=2, pick="first", entry="edge", buf=2,
-           expiry=8, eq_tol=0.1, ext_bars=32, piv=3, trend=0)
+           expiry=8, rng_bars=40, eq_tol=0.1, ext_bars=32, piv=3, trend=0)
 
 
 def _eq_levels(feat, p):
@@ -103,6 +103,11 @@ def _levels(feat, p):
         hi.append(feat.london_h); lo.append(feat.london_l)
     if "on" in p["levels"]:
         hi.append(feat.onh); lo.append(feat.onl)
+    if "rng" in p["levels"]:
+        # range extreme of the prior `rng_bars` bars (external to the recent dealing range)
+        import pandas as pd
+        hi.append(pd.Series(feat.h).shift(1).rolling(p["rng_bars"]).max().to_numpy())
+        lo.append(pd.Series(feat.l).shift(1).rolling(p["rng_bars"]).min().to_numpy())
     if "eq" in p["levels"]:
         eqh, eql = _eq_levels(feat, p)
         # the EQ level known at the close of bar i-1 is what bar i can sweep
@@ -208,12 +213,12 @@ def generate(feat, inst, p=None):
 
 # ----------------------------------------------------------------- runs
 
-def run(c, slip_ticks=1, intrabar="path", m1replay=False, shift=0):
+def run(c, slip_ticks=1, intrabar="path", m1replay=False, shift=0, mg=None):
     sym = c["sym"]
     feat = DL.feat_of(sym, c.get("tf", "15min"), shift)
-    p = {k: v for k, v in c.items() if k not in ("sym", "tf")}
+    p = {k: v for k, v in c.items() if k not in ("sym", "tf", "mg")}
     ss = generate(feat, DP.inst_of(sym), p)
-    tr = DP.simulate(feat, ss, DP.inst_of(sym), slip_ticks=slip_ticks, intrabar=intrabar,
+    tr = DP.simulate(feat, ss, DP.inst_of(sym), mg=mg or c.get("mg") or DP.EXIT, slip_ticks=slip_ticks, intrabar=intrabar,
                      m1df=DP.m1(sym) if m1replay else None, max_trades=1)
     for t in tr:
         t["sym"] = sym
