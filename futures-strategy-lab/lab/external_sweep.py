@@ -43,7 +43,7 @@ from .features import hm
 
 DEF = dict(levels=("pd", "asia", "london", "on", "eq"), win=("02:00", "11:30"), look=8, mss_n=6, disp=0.8,
            er_min=0.0, atr_exp=0.0, atr_slow=96, mf=0.15, post=2, pick="first", entry="edge", buf=2,
-           expiry=8, rng_bars=40, eq_tol=0.1, ext_bars=32, piv=3, trend=0)
+           expiry=8, max_setups=1, rng_bars=40, eq_tol=0.1, ext_bars=32, piv=3, trend=0)
 
 
 def _eq_levels(feat, p):
@@ -125,7 +125,7 @@ def generate(feat, inst, p=None):
     buf = p["buf"] * inst.tick
     tr_ema = features.ema(c, p["trend"]) if p["trend"] else None
     out = []
-    used_day = set()
+    used_day = {}
     # running extreme since each level became known (per level, reset each day / level change)
     run_hi = [np.nan] * len(hi_lv)
     run_lo = [np.nan] * len(lo_lv)
@@ -158,7 +158,7 @@ def generate(feat, inst, p=None):
         # evaluate pending sweeps: MSS + displacement + FVG
         keep = []
         for side, s, v in pending:
-            if feat.day[i] != feat.day[s] or feat.day[i] in used_day:
+            if feat.day[i] != feat.day[s] or used_day.get(feat.day[i], 0) >= p["max_setups"]:
                 continue
             if i - s > p["look"] + p["post"]:
                 continue
@@ -206,7 +206,7 @@ def generate(feat, inst, p=None):
             # price must not already be through the entry (still a retrace to come)
             out.append(Setup(i, side, "limit", inst.round_price(entry), inst.round_price(stop), rr=3.0,
                              expiry=p["expiry"], invalidate=ext, note=f"ext sweep {v:.2f} -> MSS -> FVG"))
-            used_day.add(feat.day[i])
+            used_day[feat.day[i]] = used_day.get(feat.day[i], 0) + 1
         pending = keep
     return out
 
@@ -216,10 +216,10 @@ def generate(feat, inst, p=None):
 def run(c, slip_ticks=1, intrabar="path", m1replay=False, shift=0, mg=None):
     sym = c["sym"]
     feat = DL.feat_of(sym, c.get("tf", "15min"), shift)
-    p = {k: v for k, v in c.items() if k not in ("sym", "tf", "mg")}
+    p = {k: v for k, v in c.items() if k not in ("sym", "tf", "mg", "max_trades")}
     ss = generate(feat, DP.inst_of(sym), p)
     tr = DP.simulate(feat, ss, DP.inst_of(sym), mg=mg or c.get("mg") or DP.EXIT, slip_ticks=slip_ticks, intrabar=intrabar,
-                     m1df=DP.m1(sym) if m1replay else None, max_trades=1)
+                     m1df=DP.m1(sym) if m1replay else None, max_trades=c.get("max_trades", 1))
     for t in tr:
         t["sym"] = sym
     return tr
