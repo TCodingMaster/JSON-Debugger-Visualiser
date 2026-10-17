@@ -127,6 +127,9 @@ def simulate(feat, setups, inst, mg=EXIT, flatten="15:55", max_trades=1, slip_ti
     """Same logic as lab.wr60_exits.simulate (+ slip_ticks, intrabar, m1 replay)."""
     tp, tp1 = float(mg["tp"]), mg.get("tp1")
     frac1, be_tp1, tstop = float(mg.get("frac1", .5)), bool(mg.get("be_tp1", True)), int(mg.get("tstop", 0))
+    # IFVG guard (optional): a strong opposite candle closing back into / through the entry gap
+    # -> stop to entry from the next bar (exits at that open if price is already past entry)
+    g_body, g_frac = mg.get("guard_body"), float(mg.get("guard_frac", 0.0))
     o, h, l, c = feat.o, feat.h, feat.l, feat.c
     idx = feat.df.index
     n = feat.n
@@ -247,6 +250,11 @@ def simulate(feat, setups, inst, mg=EXIT, flatten="15:55", max_trades=1, slip_ti
                 walk_bar(i)
             if pos is not None and tstop > 0 and i - pos["i0"] >= tstop:
                 pos["tstop_due"] = True
+            if pos is not None and g_body is not None and pos.get("gap") and not pos["be_done"]:
+                near, far = pos["gap"]
+                lvl = far + g_frac * (near - far)
+                if side * (o[i] - c[i]) >= g_body * feat.atr[i] and side * (c[i] - lvl) < 0:
+                    pos["be_pending"] = True
 
         if pending is not None and pos is None:
             s = pending
@@ -279,7 +287,7 @@ def simulate(feat, setups, inst, mg=EXIT, flatten="15:55", max_trades=1, slip_ti
                     pos = dict(side=s.side, entry=fill, stop=s.stop, stop0=s.stop, risk=risk, i0=i,
                                tp_px=fill + s.side * tp * risk, tp1_px=(fill + s.side * tp1 * risk) if tp1 else None,
                                tp1_done=False, be_pending=False, be_done=False, tstop_due=False,
-                               open_qty=qty, pts_qty=0.0)
+                               open_qty=qty, pts_qty=0.0, gap=s.meta)
                     day_count[feat.day[i]] = day_count.get(feat.day[i], 0) + 1
                     walk(i, rest, False)
                     if pos is not None and rest_paths:

@@ -34,6 +34,7 @@ class Setup:
     expiry: int = 20          # bars the order stays working
     invalidate: float | None = None  # cancel if a bar closes beyond this (against the trade)
     note: str = ""
+    meta: tuple | None = None  # optional (near, far) of the entry gap, used by exit guards
 
 
 @dataclass

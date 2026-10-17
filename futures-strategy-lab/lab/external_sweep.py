@@ -120,7 +120,8 @@ def generate(feat, inst, p=None):
     o, h, l, c, a = feat.o, feat.h, feat.l, feat.c, feat.atr
     n = feat.n
     a_slow = features.atr(h, l, c, p["atr_slow"])
-    w0, w1 = hm(p["win"][0]), hm(p["win"][1])
+    wins = [p["win"]] if isinstance(p["win"][0], str) else list(p["win"])
+    wins = [(hm(a_), hm(b_)) for a_, b_ in wins]
     hi_lv, lo_lv = _levels(feat, p)
     buf = p["buf"] * inst.tick
     tr_ema = features.ema(c, p["trend"]) if p["trend"] else None
@@ -136,7 +137,7 @@ def generate(feat, inst, p=None):
     pending = []    # (side, sweep_bar, level)
     for i in range(1, n):
         new_day = feat.day[i] != feat.day[i - 1]
-        in_win = w0 <= feat.mod[i] < w1
+        in_win = any(a_ <= feat.mod[i] < b_ for a_, b_ in wins)
         sweeps = []
         for side, lvls, run, prev, taken in ((-1, hi_lv, run_hi, prev_val_h, taken_h), (1, lo_lv, run_lo, prev_val_l, taken_l)):
             for j, arr in enumerate(lvls):
@@ -205,7 +206,8 @@ def generate(feat, inst, p=None):
             stop = ext + buf if side < 0 else ext - buf
             # price must not already be through the entry (still a retrace to come)
             out.append(Setup(i, side, "limit", inst.round_price(entry), inst.round_price(stop), rr=3.0,
-                             expiry=p["expiry"], invalidate=ext, note=f"ext sweep {v:.2f} -> MSS -> FVG"))
+                             expiry=p["expiry"], invalidate=ext, note=f"ext sweep {v:.2f} -> MSS -> FVG",
+                             meta=(near, far)))
             used_day[feat.day[i]] = used_day.get(feat.day[i], 0) + 1
         pending = keep
     return out
