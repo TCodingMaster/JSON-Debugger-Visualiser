@@ -1,0 +1,312 @@
+{
+ "leto": {
+  "real": {
+   "stats": {
+    "trades": 25,
+    "wr": 0.6,
+    "exp": 0.23080512929310856,
+    "pf": 1.9080445249553004,
+    "net": 1587.8048828124088,
+    "dd": 843.3258593750181,
+    "tpd": 0.5
+   },
+   "prop": {
+    "win_days_per_week": 1.0,
+    "worst_day": -491.27609375000725,
+    "trail_eod_dd": 843.3258593750181,
+    "days_traded": 23,
+    "pos_day_share": 0.6086956521739131,
+    "best_day": 431.52
+   },
+   "days": 50,
+   "legs": [
+    "LETO MNQ|15min|london|mf0.3|ch1.0",
+    "LETO MGC|15min|comex|mf0.3|ch0.0"
+   ],
+   "per_leg": {
+    "LETO MNQ|15min|london|mf0.3|ch1.0": {
+     "trades": 11,
+     "wr": 0.6363636363636364,
+     "exp": 0.40474235983130114,
+     "pf": 3.0679958436160533,
+     "net": 1273.7199999999998,
+     "dd": 297.48,
+     "tpd": null
+    },
+    "LETO MGC|15min|comex|mf0.3|ch0.0": {
+     "trades": 14,
+     "wr": 0.5714285714285714,
+     "exp": 0.09414016244167159,
+     "pf": 1.2772940498661056,
+     "net": 314.08488281240926,
+     "dd": 1006.6848828125344,
+     "tpd": null
+    }
+   }
+  },
+  "proxy": {
+   "stats": {
+    "trades": 24,
+    "wr": 0.6666666666666666,
+    "exp": 0.29164737500857013,
+    "pf": 2.4797154312677367,
+    "net": 2044.5819999999333,
+    "dd": 812.568000000013,
+    "tpd": 0.48
+   },
+   "prop": {
+    "win_days_per_week": 1.0,
+    "worst_day": -409.7200000000023,
+    "trail_eod_dd": 812.568000000013,
+    "days_traded": 21,
+    "pos_day_share": 0.7142857142857143,
+    "best_day": 432.53599999997414
+   },
+   "days": 50,
+   "legs": [
+    "LETO MNQ|15min|london|mf0.3|ch1.0",
+    "LETO MGC|15min|comex|mf0.3|ch0.0"
+   ],
+   "per_leg": {
+    "LETO MNQ|15min|london|mf0.3|ch1.0": {
+     "trades": 11,
+     "wr": 0.7272727272727273,
+     "exp": 0.5291040771065308,
+     "pf": 6.597853751186574,
+     "net": 1768.361999999956,
+     "dd": 275.08800000001156,
+     "tpd": null
+    },
+    "LETO MGC|15min|comex|mf0.3|ch0.0": {
+     "trades": 13,
+     "wr": 0.6153846153846154,
+     "exp": 0.09072247323337275,
+     "pf": 1.2591570967499568,
+     "net": 276.2199999999772,
+     "dd": 604.9600000000014,
+     "tpd": null
+    }
+   }
+  }
+ },
+ "concepts": {
+  "real": {
+   "stats": {
+    "trades": 61,
+    "wr": 0.45901639344262296,
+    "exp": -0.06522220205874257,
+    "pf": 0.8385825125391186,
+    "net": -1349.0070770954426,
+    "dd": 2203.507531140837,
+    "tpd": 1.22
+   },
+   "prop": {
+    "win_days_per_week": 1.4,
+    "worst_day": -1012.8236690775209,
+    "trail_eod_dd": 2203.507531140837,
+    "days_traded": 42,
+    "pos_day_share": 0.47619047619047616,
+    "best_day": 765.2070157577941
+   },
+   "days": 50,
+   "legs": [
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid",
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am"
+   ],
+   "per_leg": {
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid": {
+     "trades": 26,
+     "wr": 0.5384615384615384,
+     "exp": 0.0326669923714686,
+     "pf": 0.9874048317270961,
+     "net": -36.75705078137693,
+     "dd": 1058.9565820312937,
+     "tpd": null
+    },
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am": {
+     "trades": 35,
+     "wr": 0.4,
+     "exp": -0.13793988934975654,
+     "pf": 0.7587292027990828,
+     "net": -1312.250026314066,
+     "dd": 1583.6420615877785,
+     "tpd": null
+    }
+   }
+  },
+  "proxy": {
+   "stats": {
+    "trades": 57,
+    "wr": 0.47368421052631576,
+    "exp": -0.08443718438544424,
+    "pf": 0.9303647787243696,
+    "net": -453.9515123701127,
+    "dd": 2280.6671736120243,
+    "tpd": 1.14
+   },
+   "prop": {
+    "win_days_per_week": 1.6,
+    "worst_day": -552.1073474416714,
+    "trail_eod_dd": 2242.5608937595234,
+    "days_traded": 42,
+    "pos_day_share": 0.4523809523809524,
+    "best_day": 763.2809350221319
+   },
+   "days": 50,
+   "legs": [
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid",
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am"
+   ],
+   "per_leg": {
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid": {
+     "trades": 23,
+     "wr": 0.43478260869565216,
+     "exp": -0.2664212365235645,
+     "pf": 0.53534330972245,
+     "net": -1496.3200000001152,
+     "dd": 1596.8900000000785,
+     "tpd": null
+    },
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am": {
+     "trades": 34,
+     "wr": 0.5,
+     "exp": 0.038669674413872396,
+     "pf": 1.3159915283813393,
+     "net": 1042.3684876300026,
+     "dd": 1293.3201532433486,
+     "tpd": null
+    }
+   }
+  }
+ },
+ "leto+concepts": {
+  "real": {
+   "stats": {
+    "trades": 86,
+    "wr": 0.5,
+    "exp": 0.02083225472958625,
+    "pf": 1.0236296538820338,
+    "net": 238.79780571696642,
+    "dd": 1453.3867532465824,
+    "tpd": 1.72
+   },
+   "prop": {
+    "win_days_per_week": 1.8,
+    "worst_day": -1310.303669077521,
+    "trail_eod_dd": 1453.3867532465824,
+    "days_traded": 47,
+    "pos_day_share": 0.48936170212765956,
+    "best_day": 765.2070157577941
+   },
+   "days": 50,
+   "legs": [
+    "LETO MNQ|15min|london|mf0.3|ch1.0",
+    "LETO MGC|15min|comex|mf0.3|ch0.0",
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid",
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am"
+   ],
+   "per_leg": {
+    "LETO MNQ|15min|london|mf0.3|ch1.0": {
+     "trades": 11,
+     "wr": 0.6363636363636364,
+     "exp": 0.40474235983130114,
+     "pf": 3.0679958436160533,
+     "net": 1273.7199999999998,
+     "dd": 297.48,
+     "tpd": null
+    },
+    "LETO MGC|15min|comex|mf0.3|ch0.0": {
+     "trades": 14,
+     "wr": 0.5714285714285714,
+     "exp": 0.09414016244167159,
+     "pf": 1.2772940498661056,
+     "net": 314.08488281240926,
+     "dd": 1006.6848828125344,
+     "tpd": null
+    },
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid": {
+     "trades": 26,
+     "wr": 0.5384615384615384,
+     "exp": 0.0326669923714686,
+     "pf": 0.9874048317270961,
+     "net": -36.75705078137693,
+     "dd": 1058.9565820312937,
+     "tpd": null
+    },
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am": {
+     "trades": 35,
+     "wr": 0.4,
+     "exp": -0.13793988934975654,
+     "pf": 0.7587292027990828,
+     "net": -1312.250026314066,
+     "dd": 1583.6420615877785,
+     "tpd": null
+    }
+   }
+  },
+  "proxy": {
+   "stats": {
+    "trades": 81,
+    "wr": 0.5308641975308642,
+    "exp": 0.026995277657226688,
+    "pf": 1.2013269540726899,
+    "net": 1590.6304876298202,
+    "dd": 1371.641873390857,
+    "tpd": 1.62
+   },
+   "prop": {
+    "win_days_per_week": 2.0,
+    "worst_day": -830.6504659166885,
+    "trail_eod_dd": 1336.3138733908588,
+    "days_traded": 46,
+    "pos_day_share": 0.5869565217391305,
+    "best_day": 763.2809350221319
+   },
+   "days": 50,
+   "legs": [
+    "LETO MNQ|15min|london|mf0.3|ch1.0",
+    "LETO MGC|15min|comex|mf0.3|ch0.0",
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid",
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am"
+   ],
+   "per_leg": {
+    "LETO MNQ|15min|london|mf0.3|ch1.0": {
+     "trades": 11,
+     "wr": 0.7272727272727273,
+     "exp": 0.5291040771065308,
+     "pf": 6.597853751186574,
+     "net": 1768.361999999956,
+     "dd": 275.08800000001156,
+     "tpd": null
+    },
+    "LETO MGC|15min|comex|mf0.3|ch0.0": {
+     "trades": 13,
+     "wr": 0.6153846153846154,
+     "exp": 0.09072247323337275,
+     "pf": 1.2591570967499568,
+     "net": 276.2199999999772,
+     "dd": 604.9600000000014,
+     "tpd": null
+    },
+    "concept=rbrk|sym=MGC|tf=5min|W=120|entry=retest|exit=p13|range=london|stop=mid": {
+     "trades": 23,
+     "wr": 0.43478260869565216,
+     "exp": -0.2664212365235645,
+     "pf": 0.53534330972245,
+     "net": -1496.3200000001152,
+     "dd": 1596.8900000000785,
+     "tpd": null
+    },
+    "concept=ema_pb|sym=MNQ|tf=15min|exit=f1|win=am": {
+     "trades": 34,
+     "wr": 0.5,
+     "exp": 0.038669674413872396,
+     "pf": 1.3159915283813393,
+     "net": 1042.3684876300026,
+     "dd": 1293.3201532433486,
+     "tpd": null
+    }
+   }
+  }
+ }
+}
